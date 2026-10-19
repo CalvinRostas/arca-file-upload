@@ -1,6 +1,9 @@
 .nuxt
+.nuxt-e2e
 .output
 .data
 node_modules
 server/db/migrations
 bun.lock
+.nuxt-e2e
+.output-e2e

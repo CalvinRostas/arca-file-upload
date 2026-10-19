@@ -16,6 +16,8 @@ The domain language of Arca. Use these terms in code, docs, and conversation.
 
 **Folder**: a named node in the Library tree. It can contain Folders and Files. Names are unique among siblings.
 
+**Item**: either a File or a Folder; whatever can sit in a Folder. Files and Folders share one name space per Folder.
+
 **File**: what the user sees and names. It has a name, a parent Folder, Tags, and timestamps, and it points at exactly one Blob. Many Files (across all Owners) may point at the same Blob.
 
 **Blob**: the stored bytes, addressed by their SHA-256 hash and reference-counted. Users never see Blobs. A Blob with zero references is garbage-collected.

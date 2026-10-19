@@ -22,15 +22,15 @@ A self-hosted, multi-user file backup and sharing app. Domain terms are defined 
 
 Each module is **deep**: a small interface hiding most of the behaviour. Nuxt `server/api/*` routes are **thin adapters**: parse the request, call one module, shape the response. Domain errors are mapped to HTTP status codes once, in `defineApiHandler` (`server/utils/api.ts`).
 
-| Module                 | Interface (rough)                                                           | Hides                                                                                                                    |
-| ---------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **Library**            | `library.for(user)` → folders, files, tags, move / rename / trash / restore | tree integrity, Name collision rules, Trash subtrees, path recreation, Blob ref-counting                                 |
-| **Ingest**             | tus endpoint → a finished File in a Folder                                  | chunk staging, streaming SHA-256, Blob dedup, re-applying the collision decision at completion, abandoned-Upload cleanup |
-| **BlobStore** _(seam)_ | `put(stream) → hash`, `get(hash, range?)`, `delete(hash)`                   | on-disk layout `ab/cd/<hash>`; an S3/R2 adapter later                                                                    |
-| **Shares**             | `create`, `revoke`, `resolve(token, password?) → grant`                     | token generation, argon2, expiry, download limits, rate limits, counters                                                 |
-| **Search**             | `search(user, query) → results`                                             | query parsing, `pg_trgm` + tag SQL, ranking                                                                              |
-| **Previews**           | `enqueue(fileId)`, `get(fileId, size)`                                      | sharp, job queue, ffmpeg (later)                                                                                         |
-| **Auth**               | `requireUser(event)`, `requireAdmin(event)`                                 | Better Auth config, sessions, TOTP, Invites                                                                              |
+| Module                 | Interface (rough)                                                           | Hides                                                                                                                                             |
+| ---------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Library**            | `library.for(user)` → folders, files, tags, move / rename / trash / restore | tree integrity, Name collision rules, Trash subtrees, path recreation, Blob ref-counting                                                          |
+| **Ingest**             | tus endpoint → a finished File in a Folder                                  | chunk staging, streaming SHA-256, Blob dedup, re-applying the collision decision at completion, abandoned-Upload cleanup                          |
+| **BlobStore** _(seam)_ | `adopt(tempFile, hash)`, `open(hash, range?)`, `has`, `delete`              | on-disk layout `ab/cd/<hash>`, atomic moves; an S3/R2 adapter later. `adopt` (not `put(stream)`) because tus has already staged the bytes on disk |
+| **Shares**             | `create`, `revoke`, `resolve(token, password?) → grant`                     | token generation, argon2, expiry, download limits, rate limits, counters                                                                          |
+| **Search**             | `search(user, query) → results`                                             | query parsing, `pg_trgm` + tag SQL, ranking                                                                                                       |
+| **Previews**           | `enqueue(fileId)`, `get(fileId, size)`                                      | sharp, job queue, ffmpeg (later)                                                                                                                  |
+| **Auth**               | `requireUser(event)`, `requireAdmin(event)`                                 | Better Auth config, sessions, TOTP, Invites                                                                                                       |
 
 BlobStore is the only seam with two adapters in sight (local disk now, S3/R2 later). The others are deep modules with no swappable seam; don't add one until a second adapter actually exists.
 
@@ -63,7 +63,7 @@ BlobStore is the only seam with two adapters in sight (local disk now, S3/R2 lat
 
 ## Deployment
 
-- `docker compose`: `app`, `postgres`, `cloudflared`; volumes `pgdata` and `blobs`
+- `docker compose`: `app`, `postgres`, `cloudflared`; volumes `pgdata` and `data` (`/data/blobs` and `/data/uploads` share one filesystem, so finishing an Upload is a rename, not a copy)
 - The nightly `pg_dump` lands next to the blobs, so one restic/Borg/rsync job can ship a single directory off-site (recipe in the README)
 - ⚠️ Cloudflare's terms have historically discouraged using their proxy mostly for large binary/media transfer. That's acceptable at personal scale, but it's a known risk.
 

@@ -80,12 +80,13 @@ test('invite → member account → disable', async ({ page, browser }) => {
   await bobContext.close()
 })
 
+// Uses Bob, so the admin stays password-only for the other specs.
 test('two-step verification: turn on, then sign in with a code', async ({ page }) => {
-  await signIn(page, admin)
+  await signIn(page, member)
   await expect(page.getByRole('heading', { name: 'Library' })).toBeVisible()
   await page.goto('/settings/security')
   await page.getByRole('button', { name: 'Turn on' }).click()
-  await page.getByRole('dialog').getByLabel('Password', { exact: true }).fill(admin.password)
+  await page.getByRole('dialog').getByLabel('Password', { exact: true }).fill(member.password)
   await page.getByRole('button', { name: 'Continue' }).click()
 
   await page.getByText('Can’t scan it?').click()
@@ -100,7 +101,7 @@ test('two-step verification: turn on, then sign in with a code', async ({ page }
   // Sign out, then back in: password alone isn't enough any more.
   await page.getByRole('button', { name: /Account menu/ }).click()
   await page.getByRole('menuitem', { name: 'Sign out' }).click()
-  await signIn(page, admin)
+  await signIn(page, member)
   await expect(page.getByRole('heading', { name: 'Two-step verification' })).toBeVisible()
   await page.getByLabel('Code').fill('000000')
   await page.getByRole('button', { name: 'Verify' }).click()

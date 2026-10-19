@@ -26,3 +26,5 @@ logs
 # Playwright
 test-results
 playwright-report
+.nuxt-e2e
+.output-e2e
