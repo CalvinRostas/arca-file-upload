@@ -20,7 +20,7 @@ A self-hosted, multi-user file backup and sharing app. Domain terms are defined 
 
 ## Modules
 
-Each module is **deep**: a small interface hiding most of the behaviour. Nuxt `server/api/*` routes are **thin adapters**: parse the request, call one module, shape the response. Domain errors are mapped to HTTP status codes once, in the Nitro error handler.
+Each module is **deep**: a small interface hiding most of the behaviour. Nuxt `server/api/*` routes are **thin adapters**: parse the request, call one module, shape the response. Domain errors are mapped to HTTP status codes once, in `defineApiHandler` (`server/utils/api.ts`).
 
 | Module | Interface (rough) | Hides |
 |---|---|---|

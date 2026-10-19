@@ -7,7 +7,7 @@ Several people's files live on one disk. If every Library call took `ownerId` as
 
 ## Decision
 - Callers obtain `library.for(user)` and every operation runs inside that Owner's scope. There is no unscoped public interface.
-- Failures are **thrown typed domain errors** (`NotFound`, `NameConflict`, `InvalidMove`, …). They are mapped to HTTP status codes in one place, the Nitro error handler.
+- Failures are **thrown typed domain errors** (`NotFound`, `NameConflict`, `InvalidMove`, …). They are mapped to HTTP status codes in one place, the `defineApiHandler` wrapper in `server/utils/api.ts` (which every route uses). We don't take over Nitro's `errorHandler`, because that would replace Nuxt's error page.
 
 ## Consequences
 - Route handlers stay one-liners. Tests assert `rejects.toThrow(NameConflict)`.
