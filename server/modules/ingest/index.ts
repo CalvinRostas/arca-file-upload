@@ -16,6 +16,8 @@ export interface IngestConfig {
   maxFileBytes: number
   /** Resolves the signed-in Owner from request headers, or throws a DomainError. */
   authenticate(headers: Headers): Promise<{ id: string }>
+  /** Called after a File is added (e.g. to request a thumbnail). Errors are logged, not thrown. */
+  onFileAdded?(file: { blobHash: string; mimeType: string | null }): Promise<void>
 }
 
 /**
@@ -75,11 +77,17 @@ export function createIngest(config: IngestConfig) {
     }
 
     const mimeType = meta.filetype && meta.filetype.length <= 127 && MIME.test(meta.filetype) ? meta.filetype : null
-    return library.addFile(
+    const result = await library.addFile(
       folderId,
       { name: meta.filename, blob: { hash, size }, mimeType },
       meta.onConflict ?? 'keepBoth',
     )
+    if (result.status === 'added') {
+      await config.onFileAdded?.({ blobHash: hash, mimeType }).catch((error) => {
+        console.error('[ingest] onFileAdded failed', error)
+      })
+    }
+    return result
   }
 
   const server = new Server({

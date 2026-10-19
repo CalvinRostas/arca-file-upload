@@ -39,7 +39,7 @@ BlobStore is the only seam with two adapters in sight (local disk now, S3/R2 lat
 - **Name collision** is checked _before_ any bytes are sent. The client asks, the user decides, and the decision travels as tus metadata. Ingest re-applies it at completion if a same-named sibling appeared during the upload.
 - **Duplicate** can only be known _after_ the server-side hash exists. It shows as a non-blocking notice with "Discard this copy".
 
-### Background jobs (pg-boss)
+### Background jobs (Jobs module, ADR-0006)
 
 - Generate Previews after an Upload completes
 - Purge Trash entries older than 30 days
@@ -49,7 +49,7 @@ BlobStore is the only seam with two adapters in sight (local disk now, S3/R2 lat
 
 ## Stack
 
-- **Nuxt** (Nitro `node-server` preset), **Postgres** + **Drizzle**, **pg-boss**, **Better Auth**, `@tus/server` / `tus-js-client`, **sharp**
+- **Nuxt** (Nitro `node-server` preset), **Postgres** + **Drizzle**, **Better Auth**, `@tus/server` / `tus-js-client`, **sharp**
 - **bun** for installs/scripts; **Node** runtime; **Vitest** (ADR-0004)
 - **Reka UI** (headless) with a custom, calm style inspired by PrimeVue Aura: soft surfaces, generous radii, subtle borders, one accent colour
 - ESLint (`@nuxt/eslint`) + Prettier

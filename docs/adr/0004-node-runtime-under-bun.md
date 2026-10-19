@@ -4,7 +4,7 @@
 
 ## Context
 
-bun is the preferred package manager and script runner. The libraries on the critical path for streaming 10 GB files (`sharp`, `@tus/server`, `pg-boss`, Better Auth with argon2) are developed and tested mainly against Node.
+bun is the preferred package manager and script runner. The libraries on the critical path for streaming 10 GB files (`sharp`, `@tus/server`, Better Auth with argon2) are developed and tested mainly against Node.
 
 ## Decision
 

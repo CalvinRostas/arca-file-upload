@@ -5,6 +5,7 @@ import {
   check,
   index,
   integer,
+  jsonb,
   pgTable,
   text,
   timestamp,
@@ -158,3 +159,38 @@ export const item = pgTable(
     ),
   ],
 )
+
+/** Background work (see the Jobs module). A row exists while a job is pending, running or failed. */
+export const job = pgTable(
+  'job',
+  {
+    id: text('id').primaryKey(),
+    kind: text('kind').notNull(),
+    payload: jsonb('payload').notNull().$type<Record<string, unknown>>(),
+    runAt: timestamp('run_at', { withTimezone: true }).notNull().defaultNow(),
+    attempts: integer('attempts').notNull().default(0),
+    lockedUntil: timestamp('locked_until', { withTimezone: true }),
+    /** Set once retries are exhausted; the row stays for inspection and is never picked again. */
+    failedAt: timestamp('failed_at', { withTimezone: true }),
+    lastError: text('last_error'),
+    /** At most one pending job per key (e.g. one thumbnail job per Blob). */
+    dedupeKey: text('dedupe_key').unique(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('job_due_idx')
+      .on(t.runAt)
+      .where(sql`${t.failedAt} is null`),
+  ],
+)
+
+/** Derived thumbnails, per Blob (identical bytes share one Preview). */
+export const preview = pgTable('preview', {
+  blobHash: text('blob_hash')
+    .primaryKey()
+    .references(() => blob.hash, { onDelete: 'cascade' }),
+  status: text('status', { enum: ['ready', 'failed'] }).notNull(),
+  width: integer('width'),
+  height: integer('height'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})

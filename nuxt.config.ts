@@ -45,6 +45,7 @@ export default defineNuxtConfig({
     baseUrl: 'http://localhost:3000',
     blobDir: './.data/blobs',
     uploadDir: './.data/uploads',
+    previewDir: './.data/previews',
     maxUploadBytes: 64 * 1024 ** 3,
     public: {
       uploadChunkBytes: 50 * 1024 * 1024,

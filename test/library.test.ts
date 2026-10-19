@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { Database } from '../server/db'
+import { schema, type Database } from '../server/db'
 import { InvalidInput, InvalidMove, NameConflict, NotFound } from '../server/modules/errors'
 import { createLibrary, type OwnerLibrary } from '../server/modules/library'
 import { freshDatabase } from './support/db'
@@ -190,5 +190,54 @@ describe('owner scoping', () => {
     await expect(lib.getFile(theirFile.file.id)).rejects.toThrow(NotFound)
     await expect(lib.move([theirFile.file.id], null)).rejects.toThrow(NotFound)
     expect(await names()).toEqual([])
+  })
+})
+
+describe('walking a subtree (zip downloads)', () => {
+  it('lists folders and files below the chosen items, paths relative to them', async () => {
+    const trip = await lib.createFolder(null, 'Trip')
+    const day = await lib.createFolder(trip.id, 'Day 1')
+    await lib.createFolder(trip.id, 'Empty')
+    await lib.addFile(day.id, file('beach.jpg', blobA), 'keepBoth')
+    const loose = await lib.addFile(null, file('notes.txt', blobB), 'keepBoth')
+    if (loose.status !== 'added') throw new Error('unexpected')
+
+    const entries = await lib.walk([trip.id, loose.file.id])
+    // Parents always come before their children; otherwise order is collation-dependent.
+    const depth = (path: string) => path.split('/').length
+    expect(entries.map((e) => depth(e.path))).toEqual([...entries.map((e) => depth(e.path))].sort())
+    const sorted = [...entries].sort((a, b) => (a.path < b.path ? -1 : 1))
+    expect(sorted.map((e) => [e.path, e.kind, e.size])).toEqual([
+      ['Trip', 'folder', null],
+      ['Trip/Day 1', 'folder', null],
+      ['Trip/Day 1/beach.jpg', 'file', 10],
+      ['Trip/Empty', 'folder', null],
+      ['notes.txt', 'file', 20],
+    ])
+    expect(entries.find((e) => e.path === 'notes.txt')?.blobHash).toBe(blobB.hash)
+  })
+
+  it('refuses items that aren’t the owner’s', async () => {
+    const theirs = await other.createFolder(null, 'Theirs')
+    await expect(lib.walk([theirs.id])).rejects.toThrow(NotFound)
+  })
+})
+
+describe('thumbnails in listings', () => {
+  it('flags files with a ready thumbnail and gives folders a mosaic of up to three', async () => {
+    const album = await lib.createFolder(null, 'Album')
+    for (const [i, hash] of ['c', 'd', 'e', 'f'].entries()) {
+      const blob = { hash: hash.repeat(64), size: 1 }
+      await lib.addFile(album.id, { name: `${i}.jpg`, blob, mimeType: 'image/jpeg' }, 'keepBoth')
+      if (hash !== 'f') await database.db.insert(schema.preview).values({ blobHash: blob.hash, status: 'ready' })
+    }
+    await lib.addFile(album.id, file('doc.txt'), 'keepBoth')
+
+    const [folder] = (await lib.list(null)).items
+    expect(folder!.mosaic).toHaveLength(3)
+    const inside = await lib.list(album.id)
+    const flags = Object.fromEntries(inside.items.map((i) => [i.name, i.thumbnail]))
+    expect(flags).toEqual({ '0.jpg': true, '1.jpg': true, '2.jpg': true, '3.jpg': false, 'doc.txt': false })
+    expect(new Set(folder!.mosaic)).toEqual(new Set(inside.items.filter((i) => i.thumbnail).map((i) => i.id)))
   })
 })

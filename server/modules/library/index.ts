@@ -19,6 +19,10 @@ export interface Item {
   mimeType: string | null
   /** Folders only: how many non-trashed Items are directly inside. */
   childCount: number | null
+  /** Files only: a thumbnail is ready (see Previews). */
+  thumbnail: boolean
+  /** Folders only: up to three Files directly inside with thumbnails, newest first (the folder mosaic). */
+  mosaic: string[] | null
   createdAt: Date
   updatedAt: Date
 }
@@ -54,6 +58,15 @@ export type AddFileResult =
       duplicateOf: { id: string; name: string; path: Crumb[] } | null
     }
   | { status: 'skipped' }
+
+/** One entry of a subtree walk, e.g. for a zip download. Paths use `/` and start at the walked Item. */
+export interface WalkEntry {
+  path: string
+  kind: 'folder' | 'file'
+  blobHash: string | null
+  size: number | null
+  updatedAt: Date
+}
 
 export interface StoredFile {
   id: string
@@ -157,12 +170,20 @@ function scoped(db: Db, ownerId: string) {
               select count(*)::int from item c
               where c.parent_id = "item"."id" and c.trashed_at is null
             )`,
+            thumbnail: sql<boolean>`exists(
+              select 1 from preview p where p.blob_hash = "item"."blob_hash" and p.status = 'ready'
+            )`,
+            mosaic: sql<string[] | null>`case when "item"."kind" = 'folder' then array(
+              select c.id from item c join preview p on p.blob_hash = c.blob_hash and p.status = 'ready'
+              where c.parent_id = "item"."id" and c.trashed_at is null
+              order by c.created_at desc limit 3
+            ) end`,
           })
           .from(item)
           .where(mine(inFolder(folderId)))
           .orderBy(desc(item.kind), asc(sql`lower(${item.name})`)),
       ])
-      return { folder, path, items: rows.map((r) => toItem(r.row, r.childCount)) }
+      return { folder, path, items: rows.map((r) => toItem(r.row, r.childCount, r.thumbnail, r.mosaic)) }
     },
 
     async createFolder(parentId: string | null, rawName: string): Promise<Item> {
@@ -296,6 +317,46 @@ function scoped(db: Db, ownerId: string) {
       })
     },
 
+    /**
+     * Everything at and below `itemIds` (Files and Folders, not trashed), with paths relative
+     * to their common parent. For zip downloads.
+     */
+    async walk(itemIds: string[]): Promise<WalkEntry[]> {
+      const unique = [...new Set(itemIds)]
+      if (unique.length === 0) return []
+      const result = await db.execute<{
+        path: string
+        kind: 'folder' | 'file'
+        blob_hash: string | null
+        size: string | number | null
+        updated_at: string | Date
+        depth: number
+      }>(sql`
+        with recursive tree as (
+          select id, kind, name::text as path, blob_hash, size, updated_at, 0 as depth
+          from item
+          where id in (${sql.join(
+            unique.map((id) => sql`${id}`),
+            sql`, `,
+          )})
+            and owner_id = ${ownerId} and trashed_at is null
+          union all
+          select c.id, c.kind, tree.path || '/' || c.name, c.blob_hash, c.size, c.updated_at, tree.depth + 1
+          from item c join tree on c.parent_id = tree.id
+          where c.trashed_at is null
+        )
+        select path, kind, blob_hash, size, updated_at, depth from tree order by depth, path`)
+      const roots = result.rows.filter((r) => r.depth === 0).length
+      if (roots !== unique.length) throw new NotFound('Item not found')
+      return result.rows.map((r) => ({
+        path: r.path,
+        kind: r.kind,
+        blobHash: r.blob_hash,
+        size: r.size === null ? null : Number(r.size),
+        updatedAt: new Date(r.updated_at),
+      }))
+    },
+
     async getFile(fileId: string): Promise<StoredFile> {
       const [row] = await db
         .select()
@@ -322,7 +383,12 @@ function scoped(db: Db, ownerId: string) {
   }
 }
 
-function toItem(row: typeof item.$inferSelect, childCount: number | null): Item {
+function toItem(
+  row: typeof item.$inferSelect,
+  childCount: number | null,
+  thumbnail = false,
+  mosaic: string[] | null = null,
+): Item {
   return {
     id: row.id,
     kind: row.kind,
@@ -331,6 +397,8 @@ function toItem(row: typeof item.$inferSelect, childCount: number | null): Item 
     size: row.size,
     mimeType: row.mimeType,
     childCount: row.kind === 'folder' ? childCount : null,
+    thumbnail: row.kind === 'file' && thumbnail,
+    mosaic: row.kind === 'folder' ? (mosaic ?? []) : null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }

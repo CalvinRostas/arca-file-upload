@@ -12,10 +12,11 @@ ENV NODE_ENV=production \
     PORT=3000 \
     NUXT_MIGRATIONS_DIR=/app/migrations \
     NUXT_BLOB_DIR=/data/blobs \
-    NUXT_UPLOAD_DIR=/data/uploads
+    NUXT_UPLOAD_DIR=/data/uploads \
+    NUXT_PREVIEW_DIR=/data/previews
 COPY --from=build /src/.output ./
 COPY --from=build /src/server/db/migrations ./migrations
-RUN mkdir -p /data/blobs /data/uploads && chown -R node:node /data
+RUN mkdir -p /data/blobs /data/uploads /data/previews && chown -R node:node /data
 USER node
 EXPOSE 3000
 CMD ["node", "server/index.mjs"]
