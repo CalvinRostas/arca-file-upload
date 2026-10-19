@@ -1,11 +1,21 @@
+import { mkdir } from 'node:fs/promises'
+import type { H3Event } from 'h3'
 import { openDatabase, type Db } from '../db'
 import { createAuth, type Auth } from '../modules/auth'
+import { createLocalBlobStore, type BlobStore } from '../modules/blob-store'
+import { createIngest, type Ingest } from '../modules/ingest'
+import { createLibrary, type Library, type OwnerLibrary } from '../modules/library'
 
 /** The wired-up modules. Route adapters get them from here and nowhere else. */
 export interface Arca {
   db: Db
   auth: Auth
+  library: Library
+  blobStore: BlobStore
+  ingest: Ingest
 }
+
+export const UPLOADS_PATH = '/api/uploads'
 
 let ready: Promise<Arca> | undefined
 
@@ -17,6 +27,12 @@ export function useArca(): Promise<Arca> {
   return ready
 }
 
+/** The signed-in Owner's Library, or a 401. */
+export async function useOwnerLibrary(event: H3Event): Promise<OwnerLibrary> {
+  const { auth, library } = await useArca()
+  return library.for(await auth.requireUser(event.headers))
+}
+
 async function boot(): Promise<Arca> {
   const config = useRuntimeConfig()
   if (config.authSecret.length < 32) {
@@ -24,6 +40,19 @@ async function boot(): Promise<Arca> {
   }
   const database = await openDatabase(config.databaseUrl)
   await database.migrate(config.migrationsDir)
+  await mkdir(config.blobDir, { recursive: true })
+  await mkdir(config.uploadDir, { recursive: true })
+
   const auth = createAuth({ db: database.db, secret: config.authSecret, baseUrl: config.baseUrl })
-  return { db: database.db, auth }
+  const library = createLibrary({ db: database.db })
+  const blobStore = createLocalBlobStore(config.blobDir)
+  const ingest = createIngest({
+    library,
+    blobStore,
+    uploadDir: config.uploadDir,
+    path: UPLOADS_PATH,
+    maxFileBytes: Number(config.maxUploadBytes),
+    authenticate: (headers) => auth.requireUser(headers),
+  })
+  return { db: database.db, auth, library, blobStore, ingest }
 }

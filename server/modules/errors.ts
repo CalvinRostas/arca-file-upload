@@ -59,3 +59,16 @@ export class SetupAlreadyDone extends Conflict {
     super('Arca already has an admin')
   }
 }
+
+/** A sibling already has this name (names are unique per Folder, ignoring case). */
+export class NameConflict extends Conflict {
+  override readonly code = 'name_conflict'
+  constructor(readonly itemName: string) {
+    super(`Something named “${itemName}” is already in this folder`)
+  }
+}
+
+export class InvalidMove extends DomainError {
+  readonly status = 400
+  readonly code = 'invalid_move'
+}

@@ -1,4 +1,16 @@
-import { boolean, index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
+import {
+  bigint,
+  boolean,
+  check,
+  index,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  type AnyPgColumn,
+} from 'drizzle-orm/pg-core'
 
 const timestamps = {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -106,3 +118,43 @@ export const invite = pgTable('invite', {
   redeemedBy: text('redeemed_by').references(() => user.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+/** Stored bytes, addressed by SHA-256. Referenced by any number of file Items, across Owners (ADR-0003). */
+export const blob = pgTable('blob', {
+  hash: text('hash').primaryKey(),
+  size: bigint('size', { mode: 'number' }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+/**
+ * Files and Folders live in one table so a single index can keep sibling names unique
+ * (case-insensitively) across both kinds. `parentId` null means the Owner's root.
+ */
+export const item = pgTable(
+  'item',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    parentId: text('parent_id').references((): AnyPgColumn => item.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['folder', 'file'] }).notNull(),
+    name: text('name').notNull(),
+    blobHash: text('blob_hash').references(() => blob.hash),
+    size: bigint('size', { mode: 'number' }),
+    mimeType: text('mime_type'),
+    trashedAt: timestamp('trashed_at', { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex('item_sibling_name_uq')
+      .on(t.ownerId, sql`coalesce(${t.parentId}, '')`, sql`lower(${t.name})`)
+      .where(sql`${t.trashedAt} is null`),
+    index('item_owner_parent_idx').on(t.ownerId, t.parentId),
+    index('item_blob_idx').on(t.blobHash),
+    check(
+      'item_file_has_blob',
+      sql`(${t.kind} = 'folder' and ${t.blobHash} is null) or (${t.kind} = 'file' and ${t.blobHash} is not null)`,
+    ),
+  ],
+)
