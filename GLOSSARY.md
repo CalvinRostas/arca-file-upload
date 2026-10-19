@@ -22,7 +22,7 @@ The domain language of Arca. Use these terms in code, docs, and conversation.
 
 **Duplicate**: a File whose Blob the same Owner already references through another, non-trashed File. The Owner is told after the Upload completes and may discard the new copy. Dedup across Owners also happens, but it is invisible (see ADR-0003).
 
-**Name collision**: an attempt to put a File or Folder where a sibling already has that name. It is resolved before any bytes are sent: *replace* (the old item goes to Trash), *keep both* (auto-rename to `name (1).ext`), or *skip*.
+**Name collision**: an attempt to put a File or Folder where a sibling already has that name. It is resolved before any bytes are sent: _replace_ (the old item goes to Trash), _keep both_ (auto-rename to `name (1).ext`), or _skip_.
 
 **Upload**: one resumable tus transfer that becomes one File. It is in progress until its last chunk arrives, and it is abandoned (then cleaned up) after 24 h without progress.
 

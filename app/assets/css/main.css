@@ -1,1 +1,113 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/*
+ * Arca's palette: weathered stone, with verdigris (the patina on a strongbox's bronze
+ * fittings) as the only accent. Components use the semantic names below, never raw hex,
+ * so light/dark is decided here and nowhere else.
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --stone-ground: #f2f4f3; /* app background */
+  --stone-surface: #ffffff; /* panels, tiles */
+  --stone-sunken: #e9edeb; /* wells, inputs, hover */
+  --stone-line: #dbe1df;
+  --ink: #1d2826;
+  --ink-muted: #5f6d69;
+  --ink-faint: #8b9894;
+  --verdigris: #2c7a6b;
+  --verdigris-strong: #22665a;
+  --verdigris-wash: #e1efea;
+  --on-verdigris: #ffffff;
+  --danger: #b4443a;
+  --danger-wash: #f7e4e1;
+  --focus-ring: color-mix(in oklab, var(--verdigris) 55%, transparent);
+  --shadow-float: 0 1px 2px rgb(29 40 38 / 0.06), 0 12px 32px -8px rgb(29 40 38 / 0.18);
+  color-scheme: light;
+}
+
+.dark {
+  --stone-ground: #151c1b;
+  --stone-surface: #1c2524;
+  --stone-sunken: #24302e;
+  --stone-line: #2f3c3a;
+  --ink: #e4ebe9;
+  --ink-muted: #9aa8a4;
+  --ink-faint: #6e7c78;
+  --verdigris: #63bfa9;
+  --verdigris-strong: #82d0bd;
+  --verdigris-wash: #1d3732;
+  --on-verdigris: #0f2621;
+  --danger: #e2786c;
+  --danger-wash: #3a2220;
+  --shadow-float: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 40px -8px rgb(0 0 0 / 0.55);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: 'Atkinson Hyperlegible Next', ui-sans-serif, system-ui, sans-serif;
+
+  --color-ground: var(--stone-ground);
+  --color-surface: var(--stone-surface);
+  --color-sunken: var(--stone-sunken);
+  --color-line: var(--stone-line);
+  --color-ink: var(--ink);
+  --color-muted: var(--ink-muted);
+  --color-faint: var(--ink-faint);
+  --color-accent: var(--verdigris);
+  --color-accent-strong: var(--verdigris-strong);
+  --color-accent-wash: var(--verdigris-wash);
+  --color-on-accent: var(--on-verdigris);
+  --color-danger: var(--danger);
+  --color-danger-wash: var(--danger-wash);
+
+  /* Radius follows hierarchy: the bigger the container, the softer the corner. */
+  --radius-control: 0.625rem;
+  --radius-tile: 1rem;
+  --radius-panel: 1.25rem;
+
+  --shadow-float: var(--shadow-float);
+}
+
+/* Tag colours: muted so a page full of tags stays calm. Indexed by `data-tag-color`. */
+:root {
+  --tag-sage: #6f9a72;
+  --tag-lake: #5b8db8;
+  --tag-plum: #9a6fa5;
+  --tag-rose: #c06f80;
+  --tag-ochre: #c09a45;
+  --tag-clay: #b97a5a;
+  --tag-slate: #74838c;
+  --tag-moss: #8c9a4f;
+}
+
+@layer base {
+  html {
+    background: var(--stone-ground);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    font-variant-numeric: tabular-nums;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--verdigris-wash);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

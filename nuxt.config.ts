@@ -4,7 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
-  modules: ['@nuxt/eslint', '@nuxtjs/color-mode'],
+  modules: ['@nuxt/eslint', '@nuxtjs/color-mode', '@nuxt/fonts', '@nuxt/icon', 'reka-ui/nuxt'],
   css: ['~/assets/css/main.css'],
   vite: { plugins: [tailwindcss()] },
 
@@ -13,7 +13,14 @@ export default defineNuxtConfig({
     fallback: 'light',
     classSuffix: '',
     storageKey: 'arca-color-mode',
+    disableTransition: true,
   },
+
+  // Downloaded at build time and served from Arca itself — no third-party font requests.
+  fonts: {
+    families: [{ name: 'Atkinson Hyperlegible Next', provider: 'google', weights: ['400 800'] }],
+  },
+  icon: { serverBundle: 'local' },
 
   app: {
     head: {
