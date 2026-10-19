@@ -27,7 +27,16 @@ async function uploadFiles(page: Page, paths: string[]) {
   await (await chooser).setFiles(paths)
 }
 
-const tile = (page: Page, name: string) => page.getByRole('link', { name, exact: false }).filter({ hasText: name })
+/** A File or Folder tile/row, by exact name. */
+const tile = (page: Page, name: string) =>
+  page.getByRole('button', { name: new RegExp(`^Open (folder )?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`) })
+
+async function downloadViaMenu(page: Page, name: string) {
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: `Actions for ${name}` }).click()
+  await page.getByRole('menuitem', { name: /^Download/ }).click()
+  return download
+}
 
 test('folders, uploads, collisions, duplicates, downloads', async ({ page }) => {
   await signInAsAdmin(page)
@@ -37,7 +46,7 @@ test('folders, uploads, collisions, duplicates, downloads', async ({ page }) => 
   await page.getByRole('button', { name: 'New folder' }).click()
   await page.getByRole('textbox', { name: 'Name' }).fill('Taxes')
   await page.getByRole('button', { name: 'Create folder' }).click()
-  await page.getByRole('link', { name: /Taxes/ }).click()
+  await tile(page, 'Taxes').click()
   await expect(page.getByRole('heading', { name: 'Taxes', level: 1 })).toBeVisible()
   await expect(page.getByText('This folder is empty')).toBeVisible()
 
@@ -61,8 +70,7 @@ test('folders, uploads, collisions, duplicates, downloads', async ({ page }) => 
   await expect(page.getByText('Replaced the file in Taxes')).toBeVisible()
 
   // Download returns the replaced content.
-  const download = page.waitForEvent('download')
-  await tile(page, 'report.pdf').first().click()
+  const download = downloadViaMenu(page, 'report.pdf')
   expect(await readFile(await (await download).path())).toEqual(Buffer.from('version three'))
 
   // Identical bytes under another name → Duplicate notice → discard.
@@ -100,10 +108,10 @@ test('folder upload keeps the structure', async ({ page }) => {
   await page.getByRole('menuitem', { name: 'Folder' }).click()
   await (await chooser).setFiles(root)
 
-  await page.getByRole('link', { name: /Trip/ }).click()
+  await tile(page, 'Trip').click()
   await expect(tile(page, 'notes.txt')).toBeVisible()
   await expect(tile(page, '.DS_Store')).toHaveCount(0)
-  await page.getByRole('link', { name: /Day 1/ }).click()
+  await tile(page, 'Day 1').click()
   await expect(tile(page, 'beach.jpg')).toBeVisible()
 })
 
@@ -147,7 +155,6 @@ test('a big upload can be paused and resumed, and survives a reload', async ({ p
   // It continued where it stopped instead of starting over.
   expect(Math.min(...offsetsAfterReload)).toBeGreaterThan(0)
 
-  const download = page.waitForEvent('download')
-  await tile(page, 'big.bin').click()
+  const download = downloadViaMenu(page, 'big.bin')
   expect(sha(await readFile(await (await download).path()))).toBe(sha(data))
 })

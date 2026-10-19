@@ -8,6 +8,10 @@ export interface LibraryItem {
   size: number | null
   mimeType: string | null
   childCount: number | null
+  /** Files: a thumbnail is ready at /api/files/:id/thumbnail. */
+  thumbnail: boolean
+  /** Folders: up to three File ids with thumbnails, for the folder mosaic. */
+  mosaic: string[] | null
   createdAt: string
   updatedAt: string
 }
@@ -33,3 +37,6 @@ export type IngestResult =
       duplicateOf: { id: string; name: string; path: Crumb[] } | null
     }
   | { status: 'skipped' }
+
+export type SortOrder = 'name' | 'newest' | 'largest'
+export type ViewMode = 'grid' | 'list'
