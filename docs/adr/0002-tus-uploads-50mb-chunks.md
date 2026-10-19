@@ -8,7 +8,7 @@ Files range from photos to roughly 10 GB archives and videos. Arca is exposed th
 
 ## Decision
 
-All uploads use the tus protocol: `@tus/server` mounted in Nitro, and `tus-js-client` in the browser. The chunk size defaults to **50 MB** and is a config value (`ARCA_UPLOAD_CHUNK_BYTES`), not a constant.
+All uploads use the tus protocol: `@tus/server` mounted in Nitro, and `tus-js-client` in the browser. The chunk size defaults to **50 MB** and is a config value (`NUXT_PUBLIC_UPLOAD_CHUNK_BYTES`), not a constant.
 
 ## Consequences
 
