@@ -23,11 +23,11 @@ export interface User {
   name: string
   email: string
   role: Role
+  twoFactorEnabled: boolean
 }
 
 export interface Member extends User {
   disabled: boolean
-  twoFactorEnabled: boolean
   createdAt: Date
 }
 
@@ -117,8 +117,8 @@ export function createAuth(config: AuthConfig) {
   async function currentUser(headers: Headers): Promise<User | null> {
     const result = await api.getSession({ headers })
     if (!result) return null
-    const { id, name, email, role } = result.user
-    return { id, name, email, role: role === 'admin' ? 'admin' : 'member' }
+    const { id, name, email, role, twoFactorEnabled } = result.user
+    return { id, name, email, role: role === 'admin' ? 'admin' : 'member', twoFactorEnabled: twoFactorEnabled === true }
   }
 
   async function requireUser(headers: Headers): Promise<User> {

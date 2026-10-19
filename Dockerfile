@@ -1,0 +1,20 @@
+# Build with bun, run on Node (ADR-0004).
+FROM oven/bun:1.3 AS build
+WORKDIR /src
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --ignore-scripts
+COPY . .
+RUN bun run build
+
+FROM node:24-slim AS runtime
+WORKDIR /app
+ENV NODE_ENV=production \
+    PORT=3000 \
+    NUXT_MIGRATIONS_DIR=/app/migrations \
+    NUXT_BLOB_DIR=/data/blobs
+COPY --from=build /src/.output ./
+COPY --from=build /src/server/db/migrations ./migrations
+RUN mkdir -p /data/blobs && chown -R node:node /data
+USER node
+EXPOSE 3000
+CMD ["node", "server/index.mjs"]
