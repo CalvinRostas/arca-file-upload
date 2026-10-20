@@ -1,4 +1,4 @@
-import type { Tag } from '~/types/library'
+import { TAG_COLORS, type Tag, type TagColor } from '~/types/library'
 
 /** The signed-in person's Tags, shared across the app; refresh after any change. */
 export function useTags() {
@@ -8,3 +8,10 @@ export function useTags() {
 }
 
 export const tagColor = (color: string) => `var(--tag-${color})`
+
+/** The colour used least so far, so new tags spread across the palette. */
+export function nextTagColor(tags: Tag[]): TagColor {
+  const uses = new Map<TagColor, number>(TAG_COLORS.map((c) => [c, 0]))
+  for (const t of tags) uses.set(t.color, (uses.get(t.color) ?? 0) + 1)
+  return [...uses.entries()].sort((a, b) => a[1] - b[1])[0]![0]
+}

@@ -86,7 +86,17 @@ test('tag files, search with the query language and chips, and jump there with â
   const nameBox = page.getByRole('textbox', { name: 'Name of tag taxes 2025' })
   await nameBox.fill('Taxes')
   await nameBox.press('Enter')
-  await page.getByRole('radio', { name: 'rose' }).first().click()
+  await page.getByRole('radiogroup', { name: 'Colour of tag Taxes' }).getByRole('radio', { name: 'rose' }).click()
   await page.getByRole('button', { name: 'Done' }).click()
   await expect(page.getByRole('link', { name: /^Taxes\s*2$/ })).toBeVisible()
+
+  // Create a tag before using it, from the sidebar.
+  await page.getByRole('button', { name: 'New tag' }).click()
+  await page.getByRole('textbox', { name: 'New tag name' }).fill('Receipts')
+  await page.getByRole('radiogroup', { name: 'Colour of the new tag' }).getByRole('radio', { name: 'moss' }).click()
+  await page.getByRole('button', { name: 'Add' }).click()
+  await expect(page.getByRole('textbox', { name: 'Name of tag Receipts' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'New tag name' })).toHaveValue('')
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('link', { name: /^Receipts\s*0$/ })).toBeVisible()
 })

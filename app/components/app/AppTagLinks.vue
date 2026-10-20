@@ -12,15 +12,25 @@ const isActive = (name: string) => route.path === '/search' && route.query.q ===
   <section class="flex flex-col gap-0.5" aria-labelledby="tags-h">
     <div class="flex items-center justify-between px-3 pb-1">
       <h2 id="tags-h" class="text-sm font-semibold text-faint">Tags</h2>
-      <button
-        v-if="tags.length"
-        type="button"
-        class="grid size-6 place-items-center rounded-full text-faint hover:bg-sunken hover:text-ink"
-        aria-label="Edit tags"
-        @click="managing = true"
-      >
-        <Icon name="lucide:pencil" class="size-3.5" />
-      </button>
+      <div class="flex gap-0.5">
+        <button
+          v-if="tags.length"
+          type="button"
+          class="grid size-6 place-items-center rounded-full text-faint hover:bg-sunken hover:text-ink"
+          aria-label="Edit tags"
+          @click="managing = true"
+        >
+          <Icon name="lucide:pencil" class="size-3.5" />
+        </button>
+        <button
+          type="button"
+          class="grid size-6 place-items-center rounded-full text-faint hover:bg-sunken hover:text-ink"
+          aria-label="New tag"
+          @click="managing = true"
+        >
+          <Icon name="lucide:plus" class="size-4" />
+        </button>
+      </div>
     </div>
     <NuxtLink
       v-for="t in tags"
@@ -37,7 +47,7 @@ const isActive = (name: string) => route.path === '/search' && route.query.q ===
       <span class="flex-1 truncate">{{ t.name }}</span>
       <span class="text-sm text-faint">{{ t.fileCount }}</span>
     </NuxtLink>
-    <p v-if="!tags.length" class="px-3 text-sm text-faint">Tag files from their menu to find them here.</p>
+    <p v-if="!tags.length" class="px-3 text-sm text-faint">Create a tag with +, or tag files from their menu.</p>
     <TagManager v-model:open="managing" @changed="refresh().then(() => uploads.touchLibrary())" />
   </section>
 </template>

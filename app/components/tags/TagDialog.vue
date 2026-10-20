@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { TAG_COLORS, type LibraryItem, type TagColor } from '~/types/library'
+import type { LibraryItem } from '~/types/library'
 
 const open = defineModel<boolean>('open', { default: false })
 const props = defineProps<{ files: LibraryItem[] }>()
@@ -62,18 +62,14 @@ async function toggle(tagId: string) {
   }
 }
 
-/** The colour used least so far, so new tags spread across the palette. */
-function nextColor(): TagColor {
-  const uses = new Map<TagColor, number>(TAG_COLORS.map((c) => [c, 0]))
-  for (const t of tags.value) uses.set(t.color, (uses.get(t.color) ?? 0) + 1)
-  return [...uses.entries()].sort((a, b) => a[1] - b[1])[0]![0]
-}
-
 async function create() {
   error.value = ''
   busy.value = 'new'
   try {
-    const created = await $fetch('/api/tags', { method: 'POST', body: { name: filter.value, color: nextColor() } })
+    const created = await $fetch('/api/tags', {
+      method: 'POST',
+      body: { name: filter.value, color: nextTagColor(tags.value) },
+    })
     await apply(created.id, true)
     filter.value = ''
     await refreshTags()
