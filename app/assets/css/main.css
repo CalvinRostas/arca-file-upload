@@ -98,6 +98,11 @@
     outline-offset: 2px;
   }
 
+  /* The native clear button ignores the theme; clearing the text is one keystroke anyway. */
+  input[type='search']::-webkit-search-cancel-button {
+    appearance: none;
+  }
+
   ::selection {
     background: var(--verdigris-wash);
   }
