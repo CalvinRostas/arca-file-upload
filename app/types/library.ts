@@ -12,6 +12,10 @@ export interface LibraryItem {
   thumbnail: boolean
   /** Folders: up to three File ids with thumbnails, for the folder mosaic. */
   mosaic: string[] | null
+  /** Files: ids of the Owner's Tags on it. */
+  tags: string[]
+  /** Search results only: the Folder path the Item sits in. */
+  path?: Crumb[]
   createdAt: string
   updatedAt: string
 }
@@ -40,3 +44,13 @@ export type IngestResult =
 
 export type SortOrder = 'name' | 'newest' | 'largest'
 export type ViewMode = 'grid' | 'list'
+
+export const TAG_COLORS = ['sage', 'lake', 'plum', 'rose', 'ochre', 'clay', 'slate', 'moss'] as const
+export type TagColor = (typeof TAG_COLORS)[number]
+
+export interface Tag {
+  id: string
+  name: string
+  color: TagColor
+  fileCount: number
+}

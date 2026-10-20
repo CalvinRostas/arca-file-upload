@@ -2,7 +2,7 @@
 import type { LibraryItem } from '~/types/library'
 
 const props = defineProps<{ item: LibraryItem; triggerClass?: string }>()
-const emit = defineEmits<{ open: []; rename: []; move: [] }>()
+const emit = defineEmits<{ open: []; rename: []; move: []; tags: [] }>()
 
 const isFolder = computed(() => props.item.kind === 'folder')
 const downloadHref = computed(() =>
@@ -43,6 +43,9 @@ const menuItem =
         </DropdownMenuItem>
         <DropdownMenuItem :class="menuItem" @select="emit('move')">
           <Icon name="lucide:folder-input" class="size-4 text-muted" /> Move to…
+        </DropdownMenuItem>
+        <DropdownMenuItem v-if="!isFolder" :class="menuItem" @select="emit('tags')">
+          <Icon name="lucide:tag" class="size-4 text-muted" /> Tags…
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenuPortal>

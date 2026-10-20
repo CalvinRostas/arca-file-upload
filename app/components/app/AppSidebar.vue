@@ -5,5 +5,6 @@
       <span class="text-lg font-bold tracking-tight">Arca</span>
     </NuxtLink>
     <AppNavLinks />
+    <AppTagLinks class="min-h-0 overflow-y-auto" />
   </aside>
 </template>

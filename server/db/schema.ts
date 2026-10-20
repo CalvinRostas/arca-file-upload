@@ -6,6 +6,7 @@ import {
   index,
   integer,
   jsonb,
+  primaryKey,
   pgTable,
   text,
   timestamp,
@@ -153,6 +154,8 @@ export const item = pgTable(
       .where(sql`${t.trashedAt} is null`),
     index('item_owner_parent_idx').on(t.ownerId, t.parentId),
     index('item_blob_idx').on(t.blobHash),
+    // Typo-tolerant name search (pg_trgm).
+    index('item_name_trgm_idx').using('gin', sql`lower(${t.name}) gin_trgm_ops`),
     check(
       'item_file_has_blob',
       sql`(${t.kind} = 'folder' and ${t.blobHash} is null) or (${t.kind} = 'file' and ${t.blobHash} is not null)`,
@@ -194,3 +197,34 @@ export const preview = pgTable('preview', {
   height: integer('height'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+export const TAG_COLORS = ['sage', 'lake', 'plum', 'rose', 'ochre', 'clay', 'slate', 'moss'] as const
+export type TagColor = (typeof TAG_COLORS)[number]
+
+/** A flat, coloured, per-Owner label for Files (GLOSSARY: Tag). */
+export const tag = pgTable(
+  'tag',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    color: text('color', { enum: TAG_COLORS }).notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex('tag_owner_name_uq').on(t.ownerId, sql`lower(${t.name})`)],
+)
+
+export const itemTag = pgTable(
+  'item_tag',
+  {
+    itemId: text('item_id')
+      .notNull()
+      .references(() => item.id, { onDelete: 'cascade' }),
+    tagId: text('tag_id')
+      .notNull()
+      .references(() => tag.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.tagId] }), index('item_tag_tag_idx').on(t.tagId)],
+)

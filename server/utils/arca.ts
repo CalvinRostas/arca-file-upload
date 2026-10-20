@@ -7,6 +7,8 @@ import { createIngest, type Ingest } from '../modules/ingest'
 import { createJobs, type Jobs } from '../modules/jobs'
 import { createLibrary, type Library, type OwnerLibrary } from '../modules/library'
 import { createPreviews, type Previews } from '../modules/previews'
+import { createSearch, type Search } from '../modules/search'
+import { createTags, type Tags } from '../modules/tags'
 
 /** The wired-up modules. Route adapters get them from here and nowhere else. */
 export interface Arca {
@@ -17,6 +19,8 @@ export interface Arca {
   ingest: Ingest
   jobs: Jobs
   previews: Previews
+  tags: Tags
+  search: Search
 }
 
 const HOUR = 3_600_000
@@ -39,6 +43,13 @@ export async function useOwnerLibrary(event: H3Event): Promise<OwnerLibrary> {
   return library.for(await auth.requireUser(event.headers))
 }
 
+/** The signed-in Owner's Tags and Search, or a 401. */
+export async function useOwnerScope(event: H3Event) {
+  const { auth, tags, search } = await useArca()
+  const owner = await auth.requireUser(event.headers)
+  return { tags: tags.for(owner), search: search.for(owner) }
+}
+
 async function boot(): Promise<Arca> {
   const config = useRuntimeConfig()
   if (config.authSecret.length < 32) {
@@ -52,6 +63,8 @@ async function boot(): Promise<Arca> {
 
   const auth = createAuth({ db: database.db, secret: config.authSecret, baseUrl: config.baseUrl })
   const library = createLibrary({ db: database.db })
+  const tags = createTags({ db: database.db })
+  const search = createSearch({ db: database.db, library })
   const blobStore = createLocalBlobStore(config.blobDir)
   const jobs = createJobs({ db: database.db })
   const previews = createPreviews({ db: database.db, blobStore, jobs, dir: config.previewDir })
@@ -71,5 +84,5 @@ async function boot(): Promise<Arca> {
   await previews.backfill()
   jobs.start()
 
-  return { db: database.db, auth, library, blobStore, ingest, jobs, previews }
+  return { db: database.db, auth, library, blobStore, ingest, jobs, previews, tags, search }
 }

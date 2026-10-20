@@ -72,3 +72,10 @@ export class InvalidMove extends DomainError {
   readonly status = 400
   readonly code = 'invalid_move'
 }
+
+export class TagNameTaken extends Conflict {
+  override readonly code = 'tag_name_taken'
+  constructor(name: string) {
+    super(`You already have a tag called “${name}”`)
+  }
+}

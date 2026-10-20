@@ -24,6 +24,7 @@ watch(
         </DialogTitle>
         <DialogDescription class="sr-only">Main navigation</DialogDescription>
         <AppNavLinks />
+        <AppTagLinks />
       </DialogContent>
     </DialogPortal>
   </DialogRoot>

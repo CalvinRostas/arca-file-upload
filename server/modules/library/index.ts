@@ -23,6 +23,8 @@ export interface Item {
   thumbnail: boolean
   /** Folders only: up to three Files directly inside with thumbnails, newest first (the folder mosaic). */
   mosaic: string[] | null
+  /** Files only: ids of the Owner's Tags on this File. */
+  tags: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -158,32 +160,49 @@ function scoped(db: Db, ownerId: string) {
     return toItem(row!, 0)
   }
 
+  /** Items with everything a tile needs: child counts, thumbnail flags, mosaics, tags. */
+  async function decorated(where: SQL | undefined) {
+    const rows = await db
+      .select({
+        row: item,
+        childCount: sql<number>`(
+          select count(*)::int from item c
+          where c.parent_id = "item"."id" and c.trashed_at is null
+        )`,
+        thumbnail: sql<boolean>`exists(
+          select 1 from preview p where p.blob_hash = "item"."blob_hash" and p.status = 'ready'
+        )`,
+        tags: sql<string[]>`array(select it.tag_id from item_tag it where it.item_id = "item"."id")`,
+        mosaic: sql<string[] | null>`case when "item"."kind" = 'folder' then array(
+          select c.id from item c join preview p on p.blob_hash = c.blob_hash and p.status = 'ready'
+          where c.parent_id = "item"."id" and c.trashed_at is null
+          order by c.created_at desc limit 3
+        ) end`,
+      })
+      .from(item)
+      .where(where)
+      .orderBy(desc(item.kind), asc(sql`lower(${item.name})`))
+    return rows.map((r) => toItem(r.row, r.childCount, r.thumbnail, r.mosaic, r.tags))
+  }
+
   return {
     async list(folderId: string | null): Promise<Listing> {
       const folder = await requireFolder(db, folderId)
-      const [path, rows] = await Promise.all([
-        pathTo(db, folderId),
-        db
-          .select({
-            row: item,
-            childCount: sql<number>`(
-              select count(*)::int from item c
-              where c.parent_id = "item"."id" and c.trashed_at is null
-            )`,
-            thumbnail: sql<boolean>`exists(
-              select 1 from preview p where p.blob_hash = "item"."blob_hash" and p.status = 'ready'
-            )`,
-            mosaic: sql<string[] | null>`case when "item"."kind" = 'folder' then array(
-              select c.id from item c join preview p on p.blob_hash = c.blob_hash and p.status = 'ready'
-              where c.parent_id = "item"."id" and c.trashed_at is null
-              order by c.created_at desc limit 3
-            ) end`,
-          })
-          .from(item)
-          .where(mine(inFolder(folderId)))
-          .orderBy(desc(item.kind), asc(sql`lower(${item.name})`)),
-      ])
-      return { folder, path, items: rows.map((r) => toItem(r.row, r.childCount, r.thumbnail, r.mosaic)) }
+      const [path, items] = await Promise.all([pathTo(db, folderId), decorated(mine(inFolder(folderId)))])
+      return { folder, path, items }
+    },
+
+    /**
+     * Full Items for the given ids, in the given order, each with the path of the Folder it
+     * sits in. Ids that aren't the Owner's (or are trashed) are left out. For search results.
+     */
+    async describe(itemIds: string[]): Promise<(Item & { path: Crumb[] })[]> {
+      if (itemIds.length === 0) return []
+      const items = await decorated(mine(inArray(item.id, itemIds)))
+      const parents = [...new Set(items.map((i) => i.parentId).filter((id): id is string => id !== null))]
+      const paths = new Map(await Promise.all(parents.map(async (id) => [id, await pathTo(db, id)] as const)))
+      const byId = new Map(items.map((i) => [i.id, { ...i, path: i.parentId ? (paths.get(i.parentId) ?? []) : [] }]))
+      return itemIds.flatMap((id) => byId.get(id) ?? [])
     },
 
     async createFolder(parentId: string | null, rawName: string): Promise<Item> {
@@ -388,6 +407,7 @@ function toItem(
   childCount: number | null,
   thumbnail = false,
   mosaic: string[] | null = null,
+  tags: string[] = [],
 ): Item {
   return {
     id: row.id,
@@ -399,6 +419,7 @@ function toItem(
     childCount: row.kind === 'folder' ? childCount : null,
     thumbnail: row.kind === 'file' && thumbnail,
     mosaic: row.kind === 'folder' ? (mosaic ?? []) : null,
+    tags,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }

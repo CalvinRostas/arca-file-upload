@@ -2,7 +2,13 @@
 import type { LibraryItem } from '~/types/library'
 
 const props = defineProps<{ item: LibraryItem; selected: boolean; selecting: boolean }>()
-const emit = defineEmits<{ open: []; select: [event: MouseEvent]; rename: []; move: [] }>()
+const emit = defineEmits<{ open: []; select: [event: MouseEvent]; rename: []; move: []; tags: [] }>()
+
+const { byId: tagsById } = useTags()
+const itemTags = computed(() => props.item.tags.map((id) => tagsById.value.get(id)).filter((t) => t !== undefined))
+const pathLabel = computed(() =>
+  props.item.path ? ['Library', ...props.item.path.map((c) => c.name)].join(' / ') : '',
+)
 
 const isFolder = computed(() => props.item.kind === 'folder')
 const kindLabel = computed(() => {
@@ -43,7 +49,19 @@ function onClick(event: MouseEvent) {
           class="size-4.5"
         />
       </span>
-      <span class="truncate font-semibold">{{ props.item.name }}</span>
+      <span class="flex min-w-0 flex-col">
+        <span class="flex items-center gap-2">
+          <span class="truncate font-semibold">{{ props.item.name }}</span>
+          <span
+            v-for="t in itemTags"
+            :key="t.id"
+            class="size-2 shrink-0 rounded-full"
+            :style="{ background: tagColor(t.color) }"
+            :title="t.name"
+          />
+        </span>
+        <span v-if="pathLabel" class="truncate text-sm text-faint">{{ pathLabel }}</span>
+      </span>
     </button>
     <span class="hidden text-sm text-muted sm:block">{{ kindLabel }}</span>
     <span class="hidden text-right text-sm text-muted sm:block">
@@ -56,6 +74,7 @@ function onClick(event: MouseEvent) {
       @open="emit('open')"
       @rename="emit('rename')"
       @move="emit('move')"
+      @tags="emit('tags')"
     />
   </div>
 </template>

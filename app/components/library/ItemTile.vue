@@ -2,7 +2,13 @@
 import type { LibraryItem } from '~/types/library'
 
 const props = defineProps<{ item: LibraryItem; selected: boolean; selecting: boolean }>()
-const emit = defineEmits<{ open: []; select: [event: MouseEvent]; rename: []; move: [] }>()
+const emit = defineEmits<{ open: []; select: [event: MouseEvent]; rename: []; move: []; tags: [] }>()
+
+const { byId: tagsById } = useTags()
+const itemTags = computed(() => props.item.tags.map((id) => tagsById.value.get(id)).filter((t) => t !== undefined))
+const pathLabel = computed(() =>
+  props.item.path ? ['Library', ...props.item.path.map((c) => c.name)].join(' / ') : '',
+)
 
 const isFolder = computed(() => props.item.kind === 'folder')
 const meta = computed(() =>
@@ -57,16 +63,29 @@ function onClick(event: MouseEvent) {
         </span>
       </div>
 
-      <div v-if="isFolder" class="flex items-baseline justify-between gap-2 px-1.5 pb-1">
-        <span class="truncate font-semibold">{{ props.item.name }}</span>
-        <span class="shrink-0 text-sm text-faint">{{ meta }}</span>
+      <div v-if="isFolder" class="flex flex-col px-1.5 pb-1">
+        <span class="flex items-baseline justify-between gap-2">
+          <span class="truncate font-semibold">{{ props.item.name }}</span>
+          <span class="shrink-0 text-sm text-faint">{{ meta }}</span>
+        </span>
+        <span v-if="pathLabel" class="truncate text-sm text-faint">{{ pathLabel }}</span>
       </div>
       <div v-else class="flex w-full flex-col gap-0.5 px-1">
         <span class="truncate font-semibold">{{ props.item.name }}</span>
         <span class="flex items-center gap-2 text-sm text-faint">
           {{ meta }}
-          <span class="ml-auto">{{ formatDate(props.item.createdAt) }}</span>
+          <span class="ml-auto flex items-center gap-1">
+            <span
+              v-for="t in itemTags"
+              :key="t.id"
+              class="size-2 rounded-full"
+              :style="{ background: tagColor(t.color) }"
+              :title="t.name"
+            />
+          </span>
+          <span>{{ formatDate(props.item.createdAt) }}</span>
         </span>
+        <span v-if="pathLabel" class="truncate text-sm text-faint">{{ pathLabel }}</span>
       </div>
     </button>
 
@@ -87,6 +106,7 @@ function onClick(event: MouseEvent) {
       @open="emit('open')"
       @rename="emit('rename')"
       @move="emit('move')"
+      @tags="emit('tags')"
     />
   </div>
 </template>

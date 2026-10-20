@@ -24,7 +24,8 @@ export async function openDatabase(url: string): Promise<Database> {
     const { PGlite } = await import('@electric-sql/pglite')
     const { pg_trgm } = await import('@electric-sql/pglite/contrib/pg_trgm')
     const dataDir = url.slice('pglite:'.length)
-    const client = new PGlite(dataDir === 'memory' ? undefined : dataDir, { extensions: { pg_trgm } })
+    // Options object form: `new PGlite(undefined, opts)` silently drops the extensions.
+    const client = new PGlite({ dataDir: dataDir === 'memory' ? undefined : dataDir, extensions: { pg_trgm } })
     const db = drizzlePglite(client, { schema })
     return {
       // PGlite's drizzle driver exposes the same query interface as node-postgres.
