@@ -4,6 +4,7 @@ const route = useRoute()
 
 const links = computed(() => [
   { to: '/', label: 'Library', icon: 'lucide:library', match: /^\/($|folders\/)/ },
+  { to: '/trash', label: 'Trash', icon: 'lucide:trash-2', match: /^\/trash/ },
   ...(isAdmin.value
     ? [{ to: '/admin/members', label: 'Members', icon: 'lucide:users', match: /^\/admin\/members/ }]
     : []),

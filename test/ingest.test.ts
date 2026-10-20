@@ -190,9 +190,37 @@ describe('ingest', () => {
       onConflict: 'skip',
     })
     expect(skipped).toEqual({ status: 'skipped' })
+    expect(await blobs.has(sha(Buffer.from('v3')))).toBe(false) // skipped bytes aren't kept
+    expect(await stagedFiles()).toEqual([])
 
     const kept = await upload(ada, Buffer.from('v4'), { filename: 'report.pdf', folderId: folder.id })
     expect(kept).toMatchObject({ status: 'added', file: { name: 'report (1).pdf' } })
+  })
+
+  it('lands at the root when the target Folder went to Trash mid-upload', async () => {
+    const folder = await library.for(ada).createFolder(null, 'Inbox')
+    const { url } = await create(ada, 4, { filename: 'late.txt', folderId: folder.id })
+    await library.for(ada).trash([folder.id])
+    const result = (await (await patch(ada, url, 0, Buffer.from('late'))).json()) as IngestResult
+    expect(result).toMatchObject({ status: 'added', file: { name: 'late.txt', parentId: null } })
+  })
+
+  it('reclaims the bytes once the last File is deleted for good, and takes them again later', async () => {
+    const data = randomBytes(2048)
+    const first = await upload(ada, data, { filename: 'a.bin' })
+    if (first.status !== 'added') throw new Error('unexpected')
+    const mine = library.for(ada)
+    await mine.trash([first.file.id])
+    const sweep = (hash: string) => blobs.delete(hash)
+
+    expect((await library.collectBlobs(sweep)).blobs).toBe(0) // still in Trash
+    await mine.emptyTrash()
+    expect(await library.collectBlobs(sweep)).toEqual({ blobs: 1, bytes: data.length })
+    expect(await blobs.has(sha(data))).toBe(false)
+
+    const again = await upload(ada, data, { filename: 'a.bin' })
+    if (again.status !== 'added') throw new Error('unexpected')
+    expect(await buffer(await blobs.open((await mine.getFile(again.file.id)).blobHash))).toEqual(data)
   })
 
   it('requires a signed-in user', async () => {

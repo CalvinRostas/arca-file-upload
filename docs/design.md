@@ -22,16 +22,16 @@ A self-hosted, multi-user file backup and sharing app. Domain terms are defined 
 
 Each module is **deep**: a small interface hiding most of the behaviour. Nuxt `server/api/*` routes are **thin adapters**: parse the request, call one module, shape the response. Domain errors are mapped to HTTP status codes once, in `defineApiHandler` (`server/utils/api.ts`).
 
-| Module                 | Interface (rough)                                                           | Hides                                                                                                                                             |
-| ---------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Library**            | `library.for(user)` → folders, files, tags, move / rename / trash / restore | tree integrity, Name collision rules, Trash subtrees, path recreation, Blob ref-counting                                                          |
-| **Ingest**             | tus endpoint → a finished File in a Folder                                  | chunk staging, streaming SHA-256, Blob dedup, re-applying the collision decision at completion, abandoned-Upload cleanup                          |
-| **BlobStore** _(seam)_ | `adopt(tempFile, hash)`, `open(hash, range?)`, `has`, `delete`              | on-disk layout `ab/cd/<hash>`, atomic moves; an S3/R2 adapter later. `adopt` (not `put(stream)`) because tus has already staged the bytes on disk |
-| **Shares**             | `create`, `revoke`, `resolve(token, password?) → grant`                     | token generation, argon2, expiry, download limits, rate limits, counters                                                                          |
-| **Search**             | `search(user, query) → results`                                             | query parsing, `pg_trgm` + tag SQL, ranking                                                                                                       |
-| **Previews**           | `request(blobHash, mimeType)`, `thumbnailPath(blobHash)`, `backfill()`      | sharp, per-Blob WebP thumbnails (identical bytes share one), the Jobs queue, ffmpeg (later)                                                       |
-| **Jobs**               | `register`, `enqueue(kind, payload, {runAt, dedupeKey})`, `every(kind, ms)` | `job` table, SKIP LOCKED claims, leases, backoff, failure bookkeeping (ADR-0006)                                                                  |
-| **Auth**               | `requireUser(event)`, `requireAdmin(event)`                                 | Better Auth config, sessions, TOTP, Invites                                                                                                       |
+| Module                 | Interface (rough)                                                                                                                | Hides                                                                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Library**            | `library.for(user)` → folders, files, move / rename / trash / restore; housekeeping `purgeExpiredTrash()`, `collectBlobs(sweep)` | tree integrity, Name collision rules, Trash subtrees, path recreation, Blob ref-counting and GC locking (ADR-0007)                                |
+| **Ingest**             | tus endpoint → a finished File in a Folder                                                                                       | chunk staging, streaming SHA-256, Blob dedup, re-applying the collision decision at completion, abandoned-Upload cleanup                          |
+| **BlobStore** _(seam)_ | `adopt(tempFile, hash)`, `open(hash, range?)`, `has`, `delete`                                                                   | on-disk layout `ab/cd/<hash>`, atomic moves; an S3/R2 adapter later. `adopt` (not `put(stream)`) because tus has already staged the bytes on disk |
+| **Shares**             | `create`, `revoke`, `resolve(token, password?) → grant`                                                                          | token generation, argon2, expiry, download limits, rate limits, counters                                                                          |
+| **Search**             | `search(user, query) → results`                                                                                                  | query parsing, `pg_trgm` + tag SQL, ranking                                                                                                       |
+| **Previews**           | `request(blobHash, mimeType)`, `thumbnailPath(blobHash)`, `backfill()`                                                           | sharp, per-Blob WebP thumbnails (identical bytes share one), the Jobs queue, ffmpeg (later)                                                       |
+| **Jobs**               | `register`, `enqueue(kind, payload, {runAt, dedupeKey})`, `every(kind, ms)`                                                      | `job` table, SKIP LOCKED claims, leases, backoff, failure bookkeeping (ADR-0006)                                                                  |
+| **Auth**               | `requireUser(event)`, `requireAdmin(event)`                                                                                      | Better Auth config, sessions, TOTP, Invites                                                                                                       |
 
 BlobStore is the only seam with two adapters in sight (local disk now, S3/R2 later). The others are deep modules with no swappable seam; don't add one until a second adapter actually exists.
 
@@ -43,9 +43,9 @@ BlobStore is the only seam with two adapters in sight (local disk now, S3/R2 lat
 ### Background jobs (Jobs module, ADR-0006)
 
 - Generate Previews after an Upload completes
-- Purge Trash entries older than 30 days
+- Purge Trash entries older than 30 days (hourly)
 - Delete Uploads with no progress for 24 h
-- Nightly GC of Blobs with zero references
+- GC of Blobs with zero references: daily, and soon after anything is deleted for good
 - Nightly `pg_dump` into the data volume
 
 ## Stack

@@ -82,26 +82,36 @@ export function createIngest(config: IngestConfig) {
     const meta = upload.metadata as unknown as UploadMetadata
     const size = upload.size ?? 0
     const hash = await store.digest(upload.id, size)
-    await config.blobStore.adopt(store.pathOf(upload.id), hash)
-    await store.forget(upload.id)
+    const staged = store.pathOf(upload.id)
+    try {
+      return await add(meta, staged, { hash, size })
+    } finally {
+      // Adopted bytes are gone from here already; skipped or failed ones go nowhere.
+      await rm(staged, { force: true })
+      await store.forget(upload.id)
+    }
+  }
 
+  async function add(meta: UploadMetadata, staged: string, blob: { hash: string; size: number }) {
+    const { hash } = blob
     const library = config.library.for({ id: meta.ownerId! })
     const segments = (meta.relativeDir ?? '').split('/').filter(Boolean)
-    let folderId: string | null = meta.folderId || null
-    try {
-      folderId = await library.ensureFolderPath(folderId, segments)
-    } catch (error) {
-      // The target Folder vanished while bytes were in flight: keep the File, at the root.
-      if (!(error instanceof NotFound)) throw error
-      folderId = await library.ensureFolderPath(null, segments)
-    }
-
     const mimeType = mimeTypeOf(meta.filetype, meta.filename)
-    const result = await library.addFile(
-      folderId,
-      { name: meta.filename, blob: { hash, size }, mimeType },
-      meta.onConflict ?? 'keepBoth',
-    )
+    const addBelow = async (parentId: string | null) =>
+      library.addFile(
+        await library.ensureFolderPath(parentId, segments),
+        { name: meta.filename, blob, mimeType, store: () => config.blobStore.adopt(staged, hash) },
+        meta.onConflict ?? 'keepBoth',
+      )
+
+    let result: AddFileResult
+    try {
+      result = await addBelow(meta.folderId || null)
+    } catch (error) {
+      // The target Folder vanished (or went to Trash) while bytes were in flight: keep the File, at the root.
+      if (!(error instanceof NotFound)) throw error
+      result = await addBelow(null)
+    }
     if (result.status === 'added') {
       await config.onFileAdded?.({ blobHash: hash, mimeType }).catch((error) => {
         console.error('[ingest] onFileAdded failed', error)

@@ -23,6 +23,7 @@
       <div
         class="pointer-events-none fixed right-4 bottom-4 z-30 flex w-[min(26rem,calc(100vw-2rem))] flex-col gap-3 sm:right-6 sm:bottom-6"
       >
+        <AppToasts />
         <DuplicateNotices />
         <UploadPanel />
       </div>

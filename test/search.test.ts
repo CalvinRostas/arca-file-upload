@@ -61,8 +61,10 @@ describe('search', () => {
     await lib.createFolder(null, 'Photos 2024')
     await add(null, 'photos-backup.zip')
     await add(null, 'photos-secret.zip', null, theirs)
-    await add(null, 'photos-old.zip')
-    await database.db.update(schema.item).set({ trashedAt: new Date() }).where(eq(schema.item.name, 'photos-old.zip'))
+    const old = await add(null, 'photos-old.zip')
+    const archive = await lib.createFolder(null, 'Archive')
+    await add(archive.id, 'photos-inside-trashed-folder.zip')
+    await lib.trash([old.id, archive.id])
     expect((await names('photos')).sort()).toEqual(['Photos 2024', 'photos-backup.zip'])
   })
 

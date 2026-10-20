@@ -30,7 +30,7 @@ The domain language of Arca. Use these terms in code, docs, and conversation.
 
 **Tag**: a flat, colored, per-Owner label that can be attached to Files (not Folders).
 
-**Trash**: the soft-delete area. A **Trash entry** is one deleted File, or one deleted Folder together with its whole subtree. Entries are purged after 30 days. Restoring recreates any missing parent path.
+**Trash**: the soft-delete area. A **Trash entry** is one deleted File, or one deleted Folder together with its whole subtree. Entries are purged after 30 days. Restoring puts an entry back in its Folder; if that Folder is gone or in Trash itself, it recreates the path by name, and a name taken in the meantime gets a free one (as with _keep both_). An entry is only restored or deleted as a whole.
 
 **Share link**: an unguessable token URL that grants read-only access to one File or one Folder (live, including its subtree). It can have an optional password, expiry, and download limit. It is disabled while its target is in Trash.
 

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { and, asc, desc, eq, inArray, isNull, ne, sql, type SQL } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lt, ne, sql, type SQL } from 'drizzle-orm'
 import { schema, type Db } from '../../db'
 import { InvalidInput, InvalidMove, NameConflict, NotFound } from '../errors'
 import { cleanName, freeName } from './names'
@@ -48,6 +48,12 @@ export interface NewFile {
   name: string
   blob: { hash: string; size: number }
   mimeType: string | null
+  /**
+   * Put the bytes in place (BlobStore `adopt`). Called inside the transaction while the Blob
+   * row is held, so Blob GC can't collect those bytes in between (ADR-0007). Not called when
+   * the File is skipped.
+   */
+  store?: () => Promise<void>
 }
 
 export type AddFileResult =
@@ -70,6 +76,39 @@ export interface WalkEntry {
   updatedAt: Date
 }
 
+/** Days a Trash entry is kept before it's deleted for good (GLOSSARY: Trash). */
+export const TRASH_RETENTION_DAYS = 30
+const DAY = 86_400_000
+
+/** One deleted File, or one deleted Folder with its whole subtree (GLOSSARY: Trash entry). */
+export interface TrashEntry {
+  /** The id of the deleted File or Folder. */
+  id: string
+  kind: 'folder' | 'file'
+  name: string
+  mimeType: string | null
+  /** A File's size, or the total size of the Files that went to Trash with a Folder. */
+  size: number
+  /** Folders only: how many Files went to Trash with it. */
+  fileCount: number | null
+  thumbnail: boolean
+  /** Names of the Folders it was in, from the root down. */
+  from: string[]
+  trashedAt: Date
+  /** When it will be deleted for good. */
+  purgeAt: Date
+}
+
+export interface Restored {
+  id: string
+  kind: 'folder' | 'file'
+  /** Differs from the name it had when another Item has taken that name in the meantime. */
+  name: string
+  renamed: boolean
+  /** The Folder it landed in, from the top. Empty for the root. */
+  path: Crumb[]
+}
+
 export interface StoredFile {
   id: string
   name: string
@@ -84,30 +123,127 @@ export type OwnerLibrary = ReturnType<Library['for']>
 type Tx = Parameters<Parameters<Db['transaction']>[0]>[0]
 type Executor = Db | Tx
 
+export interface LibraryConfig {
+  db: Db
+  /** Called after Items are deleted for good, when Blobs may have lost their last reference. */
+  onBlobsReleased?: () => Promise<void>
+}
+
 /**
- * The Folder tree, Files, and the rules that keep them consistent. All access goes through
- * an Owner-scoped handle (ADR-0005); other Owners' Items are indistinguishable from missing ones.
+ * The Folder tree, Files, Trash, and the rules that keep them consistent. All access goes
+ * through an Owner-scoped handle (ADR-0005); other Owners' Items are indistinguishable from
+ * missing ones. The two housekeeping entry points below are the only cross-Owner operations.
  */
-export function createLibrary({ db }: { db: Db }) {
+export function createLibrary({ db, onBlobsReleased }: LibraryConfig) {
+  async function released() {
+    await onBlobsReleased?.().catch((error) => console.error('[library] onBlobsReleased failed', error))
+  }
+
   return {
     for(owner: { id: string }) {
-      return scoped(db, owner.id)
+      return scoped(db, owner.id, released)
+    },
+
+    /** Delete Trash entries older than the retention period, for every Owner. Returns how many. */
+    async purgeExpiredTrash(now = new Date()): Promise<number> {
+      const cutoff = new Date(now.getTime() - TRASH_RETENTION_DAYS * DAY)
+      const count = await db.transaction(async (tx) => {
+        const rows = await tx
+          .select({ id: item.id })
+          .from(item)
+          .where(and(eq(item.trashEntryId, item.id), lt(item.trashedAt, cutoff)))
+        return destroyEntries(
+          tx,
+          rows.map((r) => r.id),
+        )
+      })
+      if (count > 0) await released()
+      return count
+    },
+
+    /**
+     * Delete Blobs no File points at any more (trashed Files still count). `sweep` removes
+     * everything stored for a hash (bytes, Previews); it runs before the Blob row is deleted,
+     * while the row is locked, so a concurrent Upload of the same bytes waits for it (ADR-0007).
+     */
+    async collectBlobs(sweep: (hash: string) => Promise<void>): Promise<{ blobs: number; bytes: number }> {
+      const unreferenced = sql`not exists (select 1 from item i where i.blob_hash = "blob"."hash")`
+      let blobs = 0
+      let bytes = 0
+      for (;;) {
+        const batch = await db.transaction(async (tx) => {
+          const candidates = await tx
+            .select({ hash: blob.hash })
+            .from(blob)
+            .where(unreferenced)
+            .limit(100)
+            .for('update', { skipLocked: true })
+          if (candidates.length === 0) return null
+          // Re-check with a fresh snapshot now that the rows are ours.
+          const gone = await tx
+            .delete(blob)
+            .where(
+              and(
+                inArray(
+                  blob.hash,
+                  candidates.map((c) => c.hash),
+                ),
+                unreferenced,
+              ),
+            )
+            .returning({ hash: blob.hash, size: blob.size })
+          for (const row of gone) await sweep(row.hash)
+          return gone
+        })
+        if (!batch) break
+        blobs += batch.length
+        bytes += batch.reduce((sum, row) => sum + row.size, 0)
+      }
+      return { blobs, bytes }
     },
   }
 }
 
-function scoped(db: Db, ownerId: string) {
+/**
+ * Delete Trash entries (by their root ids) and everything that went to Trash with them.
+ * Older entries nested inside them are cut loose first, so they stay restorable on their own.
+ */
+async function destroyEntries(tx: Tx, entryIds: string[]): Promise<number> {
+  if (entryIds.length === 0) return 0
+  const ids = sql.join(
+    entryIds.map((id) => sql`${id}`),
+    sql`, `,
+  )
+  await tx.execute(sql`
+    update item set parent_id = null
+    where parent_id in (select id from item where trash_entry_id in (${ids}))
+      and trash_entry_id is not null and trash_entry_id not in (${ids})`)
+  await tx.execute(sql`delete from item where trash_entry_id in (${ids})`)
+  return entryIds.length
+}
+
+function scoped(db: Db, ownerId: string, released: () => Promise<void>) {
   const mine = (...conditions: (SQL | undefined)[]) =>
     and(eq(item.ownerId, ownerId), isNull(item.trashedAt), ...conditions)
   const inFolder = (parentId: string | null) =>
     parentId === null ? isNull(item.parentId) : eq(item.parentId, parentId)
 
-  async function requireFolder(q: Executor, folderId: string | null): Promise<Crumb | null> {
-    if (folderId === null) return null
+  /**
+   * The Folder, held FOR SHARE until the transaction ends: trashing it (or a Folder above it)
+   * waits for whatever we add here, and if it was trashed first, we see that and fail.
+   */
+  async function liveFolder(q: Executor, folderId: string): Promise<Crumb | undefined> {
     const [row] = await q
       .select({ id: item.id, name: item.name })
       .from(item)
       .where(mine(eq(item.id, folderId), eq(item.kind, 'folder')))
+      .for('share')
+    return row
+  }
+
+  async function requireFolder(q: Executor, folderId: string | null): Promise<Crumb | null> {
+    if (folderId === null) return null
+    const row = await liveFolder(q, folderId)
     if (!row) throw new NotFound('Folder not found')
     return row
   }
@@ -158,6 +294,42 @@ function scoped(db: Db, ownerId: string) {
   async function insertFolder(q: Executor, parentId: string | null, name: string) {
     const [row] = await q.insert(item).values({ id: randomUUID(), ownerId, parentId, kind: 'folder', name }).returning()
     return toItem(row!, 0)
+  }
+
+  /** Walk `names` below `parentId`, reusing Folders that exist and creating the rest. */
+  async function ensurePath(tx: Tx, parentId: string | null, names: string[]): Promise<string | null> {
+    await requireFolder(tx, parentId)
+    let current = parentId
+    for (const name of names) {
+      await lockFolder(tx, current)
+      const existing = await findSibling(tx, current, name)
+      if (existing?.kind === 'folder') {
+        current = existing.id
+        continue
+      }
+      const finalName = existing ? freeName(name, await siblingNames(tx, current)) : name
+      current = (await insertFolder(tx, current, finalName)).id
+    }
+    return current
+  }
+
+  /** Move a live Item, and everything below it, to Trash as one entry. */
+  async function trashSubtree(tx: Tx, rootId: string, from: string[], at: Date) {
+    const subtree = sql`
+      with recursive tree as (
+        select id from item where id = ${rootId} and trashed_at is null
+        union all
+        select c.id from item c join tree on c.parent_id = tree.id where c.trashed_at is null
+      ) select id from tree`
+    // Lock the subtree first. Anyone adding into one of its Folders holds that Folder FOR SHARE
+    // (see liveFolder), so this waits for them, and the update below then sees what they added.
+    await tx.execute(sql`select id from item where id in (${subtree}) for update`)
+    await tx.execute(sql`
+      update item set
+        trashed_at = ${at.toISOString()}::timestamptz,
+        trash_entry_id = ${rootId},
+        trashed_from = case when id = ${rootId} then ${JSON.stringify(from)}::jsonb end
+      where id in (${subtree})`)
   }
 
   /** Items with everything a tile needs: child counts, thumbnail flags, mosaics, tags. */
@@ -221,21 +393,7 @@ function scoped(db: Db, ownerId: string) {
      */
     async ensureFolderPath(parentId: string | null, segments: string[]): Promise<string | null> {
       const names = segments.map(cleanName)
-      return db.transaction(async (tx) => {
-        await requireFolder(tx, parentId)
-        let current = parentId
-        for (const name of names) {
-          await lockFolder(tx, current)
-          const existing = await findSibling(tx, current, name)
-          if (existing?.kind === 'folder') {
-            current = existing.id
-            continue
-          }
-          const finalName = existing ? freeName(name, await siblingNames(tx, current)) : name
-          current = (await insertFolder(tx, current, finalName)).id
-        }
-        return current
-      })
+      return db.transaction((tx) => ensurePath(tx, parentId, names))
     },
 
     /** Which of `names` are already taken in the Folder (for the pre-upload collision prompt). */
@@ -250,7 +408,6 @@ function scoped(db: Db, ownerId: string) {
       return db.transaction(async (tx) => {
         await requireFolder(tx, parentId)
         await lockFolder(tx, parentId)
-        await tx.insert(blob).values({ hash: file.blob.hash, size: file.blob.size }).onConflictDoNothing()
 
         let finalName = name
         let replaced = false
@@ -258,12 +415,20 @@ function scoped(db: Db, ownerId: string) {
         if (existing) {
           if (onConflict === 'skip') return { status: 'skipped' as const }
           if (onConflict === 'replace' && existing.kind === 'file') {
-            await tx.update(item).set({ trashedAt: new Date() }).where(eq(item.id, existing.id))
+            const from = (await pathTo(tx, parentId)).map((c) => c.name)
+            await trashSubtree(tx, existing.id, from, new Date())
             replaced = true
           } else {
             finalName = freeName(name, await siblingNames(tx, parentId))
           }
         }
+
+        // Upsert (not "do nothing"), so the Blob row stays locked until we commit (ADR-0007).
+        await tx
+          .insert(blob)
+          .values({ hash: file.blob.hash, size: file.blob.size })
+          .onConflictDoUpdate({ target: blob.hash, set: { size: sql`excluded.size` } })
+        await file.store?.()
 
         const [twin] = await tx
           .select({ id: item.id, name: item.name, parentId: item.parentId })
@@ -376,13 +541,163 @@ function scoped(db: Db, ownerId: string) {
       }))
     },
 
-    async getFile(fileId: string): Promise<StoredFile> {
+    /** `includeTrashed`: also Files in Trash (for their thumbnails there). */
+    async getFile(fileId: string, options: { includeTrashed?: boolean } = {}): Promise<StoredFile> {
       const [row] = await db
         .select()
         .from(item)
-        .where(mine(eq(item.id, fileId), eq(item.kind, 'file')))
+        .where(
+          options.includeTrashed
+            ? and(eq(item.ownerId, ownerId), eq(item.id, fileId), eq(item.kind, 'file'))
+            : mine(eq(item.id, fileId), eq(item.kind, 'file')),
+        )
       if (!row) throw new NotFound('File not found')
       return { id: row.id, name: row.name, size: row.size!, mimeType: row.mimeType, blobHash: row.blobHash! }
+    },
+
+    /**
+     * Move Items to Trash. Each becomes one Trash entry with its whole subtree; an Item inside a
+     * Folder that's trashed in the same call goes along with that Folder. Returns the entry ids
+     * (for "Undo").
+     */
+    async trash(itemIds: string[]): Promise<{ entryIds: string[] }> {
+      const unique = [...new Set(itemIds)]
+      if (unique.length === 0) return { entryIds: [] }
+      return db.transaction(async (tx) => {
+        const rows = await tx
+          .select()
+          .from(item)
+          .where(mine(inArray(item.id, unique)))
+          .for('update')
+        if (rows.length !== unique.length) throw new NotFound('Item not found')
+
+        const located: { id: string; from: string[] }[] = []
+        for (const row of rows) located.push({ id: row.id, from: (await pathTo(tx, row.parentId)).map((c) => c.name) })
+        located.sort((a, b) => a.from.length - b.from.length) // outermost first
+
+        const at = new Date()
+        const entryIds: string[] = []
+        for (const { id, from } of located) {
+          const [still] = await tx.select({ trashedAt: item.trashedAt }).from(item).where(eq(item.id, id))
+          if (still?.trashedAt) continue // went along with a Folder above it
+          await trashSubtree(tx, id, from, at)
+          entryIds.push(id)
+        }
+        return { entryIds }
+      })
+    },
+
+    /** The Owner's Trash, most recently deleted first. */
+    async trashEntries(): Promise<TrashEntry[]> {
+      const inEntry = sql`c.trash_entry_id = "item"."id" and c.kind = 'file'`
+      const rows = await db
+        .select({
+          row: item,
+          total: sql<string | number>`(select coalesce(sum(c.size), 0) from item c where ${inEntry})`,
+          fileCount: sql<number>`(select count(*)::int from item c where ${inEntry})`,
+          thumbnail: sql<boolean>`exists(
+            select 1 from preview p where p.blob_hash = "item"."blob_hash" and p.status = 'ready'
+          )`,
+        })
+        .from(item)
+        .where(and(eq(item.ownerId, ownerId), eq(item.trashEntryId, item.id)))
+        .orderBy(desc(item.trashedAt), asc(sql`lower(${item.name})`))
+
+      const entries: TrashEntry[] = []
+      for (const { row, total, fileCount, thumbnail } of rows) {
+        const trashedAt = row.trashedAt!
+        entries.push({
+          id: row.id,
+          kind: row.kind,
+          name: row.name,
+          mimeType: row.mimeType,
+          size: row.kind === 'file' ? row.size! : Number(total),
+          fileCount: row.kind === 'folder' ? fileCount : null,
+          thumbnail: row.kind === 'file' && thumbnail,
+          // Files replaced before Trash existed have no recorded path; their Folder tells.
+          from: row.trashedFrom ?? (await pathTo(db, row.parentId)).map((c) => c.name),
+          trashedAt,
+          purgeAt: new Date(trashedAt.getTime() + TRASH_RETENTION_DAYS * DAY),
+        })
+      }
+      return entries
+    },
+
+    /**
+     * Put Trash entries back. Each goes to the Folder it was in; if that Folder is gone (or in
+     * Trash itself), the path is recreated by name from the root. A name that's been taken in
+     * the meantime gets a free one, as with "keep both".
+     */
+    async restore(entryIds: string[]): Promise<Restored[]> {
+      const unique = [...new Set(entryIds)]
+      if (unique.length === 0) return []
+      return db.transaction(async (tx) => {
+        // Most recent first: a Folder trashed after something inside it comes back first,
+        // so the older entry finds its Folder again instead of recreating it.
+        const entries = await tx
+          .select()
+          .from(item)
+          .where(and(eq(item.ownerId, ownerId), inArray(item.id, unique), eq(item.trashEntryId, item.id)))
+          .orderBy(desc(item.trashedAt))
+          .for('update')
+        if (entries.length !== unique.length) throw new NotFound('That’s no longer in Trash')
+
+        const restored: Restored[] = []
+        for (const entry of entries) {
+          const parentLives = entry.parentId !== null && (await liveFolder(tx, entry.parentId)) !== undefined
+          const target = parentLives ? entry.parentId : await ensurePath(tx, null, entry.trashedFrom ?? [])
+          await lockFolder(tx, target)
+          const name = (await findSibling(tx, target, entry.name))
+            ? freeName(entry.name, await siblingNames(tx, target))
+            : entry.name
+          await tx
+            .update(item)
+            .set({ parentId: target, name, trashedAt: null, trashEntryId: null, trashedFrom: null })
+            .where(eq(item.id, entry.id))
+          await tx.update(item).set({ trashedAt: null, trashEntryId: null }).where(eq(item.trashEntryId, entry.id))
+          restored.push({
+            id: entry.id,
+            kind: entry.kind,
+            name,
+            renamed: name !== entry.name,
+            path: await pathTo(tx, target),
+          })
+        }
+        return restored
+      })
+    },
+
+    /** Delete Trash entries for good. Their bytes are reclaimed by Blob GC later. */
+    async deleteForever(entryIds: string[]): Promise<void> {
+      const unique = [...new Set(entryIds)]
+      if (unique.length === 0) return
+      await db.transaction(async (tx) => {
+        const rows = await tx
+          .select({ id: item.id })
+          .from(item)
+          .where(and(eq(item.ownerId, ownerId), inArray(item.id, unique), eq(item.trashEntryId, item.id)))
+          .for('update')
+        if (rows.length !== unique.length) throw new NotFound('That’s no longer in Trash')
+        await destroyEntries(tx, unique)
+      })
+      await released()
+    },
+
+    /** Delete everything in the Owner's Trash for good. Returns how many entries. */
+    async emptyTrash(): Promise<number> {
+      const count = await db.transaction(async (tx) => {
+        const rows = await tx
+          .select({ id: item.id })
+          .from(item)
+          .where(and(eq(item.ownerId, ownerId), eq(item.trashEntryId, item.id)))
+          .for('update')
+        return destroyEntries(
+          tx,
+          rows.map((r) => r.id),
+        )
+      })
+      if (count > 0) await released()
+      return count
     },
 
     /** "Discard this copy": only allowed while another of the Owner's Files keeps the same bytes. */

@@ -146,6 +146,13 @@ export const item = pgTable(
     size: bigint('size', { mode: 'number' }),
     mimeType: text('mime_type'),
     trashedAt: timestamp('trashed_at', { withTimezone: true }),
+    /**
+     * The Trash entry this row went to Trash with: the id of the File or Folder that was deleted.
+     * Every row of a trashed subtree carries it, so "not trashed" is one column check everywhere.
+     */
+    trashEntryId: text('trash_entry_id'),
+    /** Entry roots only: names of the Folders it was in, from the root down, for restoring. */
+    trashedFrom: jsonb('trashed_from').$type<string[]>(),
     ...timestamps,
   },
   (t) => [
@@ -154,12 +161,16 @@ export const item = pgTable(
       .where(sql`${t.trashedAt} is null`),
     index('item_owner_parent_idx').on(t.ownerId, t.parentId),
     index('item_blob_idx').on(t.blobHash),
+    index('item_trash_entry_idx')
+      .on(t.trashEntryId)
+      .where(sql`${t.trashEntryId} is not null`),
     // Typo-tolerant name search (pg_trgm).
     index('item_name_trgm_idx').using('gin', sql`lower(${t.name}) gin_trgm_ops`),
     check(
       'item_file_has_blob',
       sql`(${t.kind} = 'folder' and ${t.blobHash} is null) or (${t.kind} = 'file' and ${t.blobHash} is not null)`,
     ),
+    check('item_trash_entry_set', sql`(${t.trashedAt} is null) = (${t.trashEntryId} is null)`),
   ],
 )
 

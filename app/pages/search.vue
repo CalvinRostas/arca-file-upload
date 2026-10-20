@@ -30,6 +30,9 @@ const { data: withinFolder } = await useFetch<Listing>('/api/library', {
   watch: [within],
 })
 
+// Trashing (and its Undo) can happen from here or from a toast.
+watch(useUploads().libraryVersion, () => refresh())
+
 function go(next: { q?: string; within?: string | null }) {
   const query: Record<string, string> = {}
   const text = next.q ?? q.value

@@ -62,11 +62,15 @@ async function boot(): Promise<Arca> {
   await mkdir(config.previewDir, { recursive: true })
 
   const auth = createAuth({ db: database.db, secret: config.authSecret, baseUrl: config.baseUrl })
-  const library = createLibrary({ db: database.db })
+  const jobs = createJobs({ db: database.db })
+  const library = createLibrary({
+    db: database.db,
+    // Reclaim disk space soon after something is deleted for good, not just nightly.
+    onBlobsReleased: () => jobs.enqueue('collect-blobs', {}, { dedupeKey: 'collect-blobs' }),
+  })
   const tags = createTags({ db: database.db })
   const search = createSearch({ db: database.db, library })
   const blobStore = createLocalBlobStore(config.blobDir)
-  const jobs = createJobs({ db: database.db })
   const previews = createPreviews({ db: database.db, blobStore, jobs, dir: config.previewDir })
   const ingest = createIngest({
     library,
@@ -81,6 +85,17 @@ async function boot(): Promise<Arca> {
   // Housekeeping (GLOSSARY: Upload — abandoned after 24 h without progress).
   jobs.register('cleanup-uploads', async () => void (await ingest.cleanupAbandoned(24 * HOUR)))
   jobs.every('cleanup-uploads', HOUR)
+  // GLOSSARY: Trash — entries are purged after 30 days; then unreferenced Blobs are collected.
+  jobs.register('purge-trash', async () => void (await library.purgeExpiredTrash()))
+  jobs.every('purge-trash', HOUR)
+  jobs.register('collect-blobs', async () => {
+    const { blobs, bytes } = await library.collectBlobs(async (hash) => {
+      await blobStore.delete(hash)
+      await previews.forget(hash)
+    })
+    if (blobs > 0) console.info(`[arca] blob GC: removed ${blobs} blobs, ${bytes} bytes`)
+  })
+  jobs.every('collect-blobs', 24 * HOUR)
   await previews.backfill()
   jobs.start()
 

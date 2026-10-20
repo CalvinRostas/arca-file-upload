@@ -2,7 +2,7 @@
 import type { LibraryItem } from '~/types/library'
 
 const props = defineProps<{ item: LibraryItem; triggerClass?: string }>()
-const emit = defineEmits<{ open: []; rename: []; move: []; tags: [] }>()
+const emit = defineEmits<{ open: []; rename: []; move: []; tags: []; trash: [] }>()
 
 const isFolder = computed(() => props.item.kind === 'folder')
 const downloadHref = computed(() =>
@@ -46,6 +46,10 @@ const menuItem =
         </DropdownMenuItem>
         <DropdownMenuItem v-if="!isFolder" :class="menuItem" @select="emit('tags')">
           <Icon name="lucide:tag" class="size-4 text-muted" /> Tags…
+        </DropdownMenuItem>
+        <DropdownMenuSeparator class="my-1 h-px bg-line" />
+        <DropdownMenuItem :class="[menuItem, 'text-danger data-highlighted:bg-danger-wash']" @select="emit('trash')">
+          <Icon name="lucide:trash-2" class="size-4" /> Move to Trash
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenuPortal>

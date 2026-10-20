@@ -8,7 +8,7 @@ import { schema, type Db } from '../../db'
 import type { BlobStore } from '../blob-store'
 import type { Jobs } from '../jobs'
 
-const { preview, item } = schema
+const { preview, item, blob } = schema
 
 /** What we can render. HEIC/HEIF (iPhone photos) go through heic-convert first. */
 const THUMBNAILABLE = /^image\/(jpeg|png|webp|gif|avif|tiff|svg\+xml|heic|heif)$/
@@ -74,6 +74,8 @@ export function createPreviews({ db, blobStore, jobs, dir }: PreviewsConfig) {
   async function generate(hash: string, mimeType: string) {
     const [existing] = await db.select().from(preview).where(eq(preview.blobHash, hash))
     if (existing) return
+    const [stored] = await db.select({ hash: blob.hash }).from(blob).where(eq(blob.hash, hash))
+    if (!stored) return // collected (Blob GC) before we got to it
     await mkdir(dirname(pathOf(hash, 'thumb')), { recursive: true })
 
     try {
@@ -109,6 +111,11 @@ export function createPreviews({ db, blobStore, jobs, dir }: PreviewsConfig) {
       return stat(path)
         .then(() => path)
         .catch(() => null)
+    },
+
+    /** Delete a Blob's renditions (Blob GC). Its `preview` row goes with the Blob row. */
+    async forget(hash: string): Promise<void> {
+      await Promise.all((['thumb', 'view'] as const).map((size) => rm(pathOf(hash, size), { force: true })))
     },
 
     /** Ask for previews of every renderable File that has none yet (e.g. after an upgrade). */

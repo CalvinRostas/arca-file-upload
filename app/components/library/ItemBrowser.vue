@@ -72,6 +72,11 @@ function onKeydown(event: KeyboardEvent) {
   const target = event.target as HTMLElement
   if (target.closest('input, textarea, [role="dialog"], [role="menu"]')) return
   if (event.key === 'Escape' && selecting.value) clearSelection()
+  // Delete, or ⌘⌫ as in Finder.
+  if (selecting.value && (event.key === 'Delete' || (event.key === 'Backspace' && (event.metaKey || event.ctrlKey)))) {
+    event.preventDefault()
+    void trash(selectedItems.value)
+  }
   if (event.key === 'a' && (event.metaKey || event.ctrlKey)) {
     event.preventDefault()
     selected.value = new Set(ordered.value.map((i) => i.id))
@@ -113,6 +118,12 @@ function editTags(items: LibraryItem[]) {
 
 function changed() {
   emit('changed')
+}
+
+// Recoverable, with Undo in the confirmation, so no "are you sure?".
+const { moveToTrash } = useTrash()
+async function trash(items: LibraryItem[]) {
+  if (await moveToTrash(items)) clearSelection()
 }
 
 const rename = reactive({ open: false, item: null as LibraryItem | null, name: '', error: '', busy: false })
@@ -157,6 +168,7 @@ defineExpose({ clearSelection })
         Tags…
       </UiButton>
       <UiButton size="sm" icon="lucide:folder-input" @click="move([...selected])">Move to…</UiButton>
+      <UiButton size="sm" variant="danger" icon="lucide:trash-2" @click="trash(selectedItems)">Move to Trash</UiButton>
       <UiButton size="sm" variant="ghost" icon="lucide:x" @click="clearSelection">Clear</UiButton>
     </div>
 
@@ -174,6 +186,7 @@ defineExpose({ clearSelection })
             @select="select(folder, $event)"
             @rename="startRename(folder)"
             @move="move([folder.id])"
+            @trash="trash([folder])"
           />
         </div>
       </section>
@@ -191,6 +204,7 @@ defineExpose({ clearSelection })
             @rename="startRename(file)"
             @move="move([file.id])"
             @tags="editTags([file])"
+            @trash="trash([file])"
           />
         </div>
       </section>
@@ -215,6 +229,7 @@ defineExpose({ clearSelection })
         @rename="startRename(item)"
         @move="move([item.id])"
         @tags="editTags([item])"
+        @trash="trash([item])"
       />
     </section>
 

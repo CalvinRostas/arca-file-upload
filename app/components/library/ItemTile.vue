@@ -2,7 +2,14 @@
 import type { LibraryItem } from '~/types/library'
 
 const props = defineProps<{ item: LibraryItem; selected: boolean; selecting: boolean }>()
-const emit = defineEmits<{ open: []; select: [event: MouseEvent]; rename: []; move: []; tags: [] }>()
+const emit = defineEmits<{
+  open: []
+  select: [event: MouseEvent]
+  rename: []
+  move: []
+  tags: []
+  trash: []
+}>()
 
 const { byId: tagsById } = useTags()
 const itemTags = computed(() => props.item.tags.map((id) => tagsById.value.get(id)).filter((t) => t !== undefined))
@@ -107,6 +114,7 @@ function onClick(event: MouseEvent) {
       @rename="emit('rename')"
       @move="emit('move')"
       @tags="emit('tags')"
+      @trash="emit('trash')"
     />
   </div>
 </template>

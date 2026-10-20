@@ -54,3 +54,29 @@ export interface Tag {
   color: TagColor
   fileCount: number
 }
+
+/** One deleted File, or one deleted Folder with everything that was in it. */
+export interface TrashEntry {
+  id: string
+  kind: 'folder' | 'file'
+  name: string
+  mimeType: string | null
+  /** A File's size, or the total of the Files that went with a Folder. */
+  size: number
+  /** Folders: how many Files went to Trash with it. */
+  fileCount: number | null
+  thumbnail: boolean
+  /** Names of the Folders it was in, from the root down. */
+  from: string[]
+  trashedAt: string
+  purgeAt: string
+}
+
+export interface Restored {
+  id: string
+  kind: 'folder' | 'file'
+  name: string
+  renamed: boolean
+  /** The Folder it landed in, from the top; empty for the root. */
+  path: Crumb[]
+}
