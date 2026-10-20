@@ -157,6 +157,15 @@ describe('ingest', () => {
     expect(shards.filter((p) => p.endsWith(sha(data)))).toHaveLength(1)
   })
 
+  it('guesses the type from the name when the browser sends none', async () => {
+    const heic = await upload(ada, randomBytes(10), { filename: 'IMG_0042.HEIC' })
+    const odd = await upload(ada, randomBytes(10), { filename: 'notes.weird' })
+    const trusted = await upload(ada, randomBytes(10), { filename: 'x.heic', filetype: 'application/x-custom' })
+    expect(heic).toMatchObject({ file: { mimeType: 'image/heic' } })
+    expect(odd).toMatchObject({ file: { mimeType: null } })
+    expect(trusted).toMatchObject({ file: { mimeType: 'application/x-custom' } })
+  })
+
   it('creates the Folders of a folder upload', async () => {
     const result = await upload(ada, randomBytes(10), { filename: 'a.jpg', relativeDir: 'Trip/Day 1' })
     if (result.status !== 'added') throw new Error('unexpected')

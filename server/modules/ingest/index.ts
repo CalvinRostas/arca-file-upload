@@ -40,6 +40,26 @@ export type IngestResult = AddFileResult
 
 const CHOICES: ConflictChoice[] = ['replace', 'keepBoth', 'skip']
 const MIME = /^[\w.+-]+\/[\w.+-]+$/
+/** When the browser sends no type (common for .heic), guess from the name for the formats we render. */
+const MIME_BY_EXTENSION: Record<string, string> = {
+  heic: 'image/heic',
+  heif: 'image/heif',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  avif: 'image/avif',
+  tif: 'image/tiff',
+  tiff: 'image/tiff',
+  pdf: 'application/pdf',
+  mp4: 'video/mp4',
+  mov: 'video/quicktime',
+}
+
+function mimeTypeOf(filetype: string | undefined, filename: string): string | null {
+  if (filetype && filetype.length <= 127 && MIME.test(filetype)) return filetype
+  return MIME_BY_EXTENSION[filename.split('.').pop()?.toLowerCase() ?? ''] ?? null
+}
 
 /** tus aborts a request when a hook throws `{ status_code, body }`. */
 function fail(status_code: number, body: string) {
@@ -76,7 +96,7 @@ export function createIngest(config: IngestConfig) {
       folderId = await library.ensureFolderPath(null, segments)
     }
 
-    const mimeType = meta.filetype && meta.filetype.length <= 127 && MIME.test(meta.filetype) ? meta.filetype : null
+    const mimeType = mimeTypeOf(meta.filetype, meta.filename)
     const result = await library.addFile(
       folderId,
       { name: meta.filename, blob: { hash, size }, mimeType },

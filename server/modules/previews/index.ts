@@ -1,7 +1,8 @@
 import { mkdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { Readable } from 'node:stream'
+import { buffer } from 'node:stream/consumers'
 import { and, eq, isNull, sql } from 'drizzle-orm'
+import heicConvert from 'heic-convert'
 import sharp, { type Sharp } from 'sharp'
 import { schema, type Db } from '../../db'
 import type { BlobStore } from '../blob-store'
@@ -9,73 +10,108 @@ import type { Jobs } from '../jobs'
 
 const { preview, item } = schema
 
-/** Formats sharp's prebuilt binaries can decode. HEIC (iPhone photos) isn't one of them yet. */
-const THUMBNAILABLE = /^image\/(jpeg|png|webp|gif|avif|tiff|svg\+xml)$/
-const MAX_EDGE = 640
+/** What we can render. HEIC/HEIF (iPhone photos) go through heic-convert first. */
+const THUMBNAILABLE = /^image\/(jpeg|png|webp|gif|avif|tiff|svg\+xml|heic|heif)$/
+/** Browsers can't show these originals, so they also get a large rendition for the viewer. */
+const NEEDS_VIEW_RENDITION = /^image\/(tiff|heic|heif)$/
+const HEIF = /^image\/hei[cf]$/
+/** HEIC decoding needs the whole file in memory; phone photos are a few MB. */
+const MAX_HEIC_BYTES = 100 * 1024 * 1024
+
+export type PreviewSize = 'thumb' | 'view'
+const EDGE: Record<PreviewSize, number> = { thumb: 640, view: 2048 }
 const JOB = 'preview'
 
 export interface PreviewsConfig {
   db: Db
   blobStore: BlobStore
   jobs: Jobs
-  /** Where thumbnails are cached. Derived data: safe to delete, it will be regenerated. */
+  /** Where renditions are cached. Derived data: safe to delete, it will be regenerated. */
   dir: string
 }
 
 /**
- * Thumbnails for Files, generated in the background and keyed by Blob, so identical bytes
- * share one Preview. Callers ask for one after an Upload and read it back by hash.
+ * Thumbnails (and, for formats browsers can't show, a large viewing copy) generated in the
+ * background and keyed by Blob, so identical bytes share one Preview.
  */
 export function createPreviews({ db, blobStore, jobs, dir }: PreviewsConfig) {
-  const pathOf = (hash: string) => join(dir, hash.slice(0, 2), `${hash}.webp`)
+  const pathOf = (hash: string, size: PreviewSize) =>
+    join(dir, hash.slice(0, 2), size === 'thumb' ? `${hash}.webp` : `${hash}.view.webp`)
 
-  async function generate(hash: string) {
+  /** A sharp pipeline over the Blob's bytes, decoding HEIC first when needed. */
+  async function source(hash: string, mimeType: string): Promise<Sharp> {
+    const options = { failOn: 'none' as const, animated: false, limitInputPixels: 268_402_689 }
+    if (HEIF.test(mimeType)) {
+      const bytes = await buffer(await blobStore.open(hash))
+      if (bytes.length > MAX_HEIC_BYTES) throw new Error('HEIC too large to decode')
+      const jpeg = await heicConvert({ buffer: bytes, format: 'JPEG', quality: 0.92 })
+      return sharp(Buffer.from(jpeg), options)
+    }
+    const transform = sharp(options)
+    const input = await blobStore.open(hash) // I/O errors throw: the job retries
+    input.on('error', (error) => transform.destroy(error))
+    input.pipe(transform)
+    return transform
+  }
+
+  async function render(image: Sharp, size: PreviewSize, target: string) {
+    const partial = `${target}.partial`
+    try {
+      return await image
+        .rotate() // honour EXIF orientation
+        .resize(EDGE[size], EDGE[size], { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: size === 'thumb' ? 74 : 82 })
+        .toFile(partial)
+        .then(async (info) => {
+          await rename(partial, target)
+          return info
+        })
+    } finally {
+      await rm(partial, { force: true })
+    }
+  }
+
+  async function generate(hash: string, mimeType: string) {
     const [existing] = await db.select().from(preview).where(eq(preview.blobHash, hash))
     if (existing) return
+    await mkdir(dirname(pathOf(hash, 'thumb')), { recursive: true })
 
-    const target = pathOf(hash)
-    const partial = `${target}.partial`
-    await mkdir(dirname(target), { recursive: true })
-    const input = await blobStore.open(hash) // I/O errors throw: the job retries
-
-    const transform = sharp({ failOn: 'none', animated: false })
-      .rotate() // honour EXIF orientation
-      .resize(MAX_EDGE, MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
-      .webp({ quality: 74 })
     try {
-      const info = await toFile(input, transform, partial)
-      await rename(partial, target)
+      const image = await source(hash, mimeType)
+      const sizes: PreviewSize[] = NEEDS_VIEW_RENDITION.test(mimeType) ? ['thumb', 'view'] : ['thumb']
+      // clone() lets one decode feed several outputs.
+      const [thumb] = await Promise.all(sizes.map((size) => render(image.clone(), size, pathOf(hash, size))))
       await db
         .insert(preview)
-        .values({ blobHash: hash, status: 'ready', width: info.width, height: info.height })
+        .values({ blobHash: hash, status: 'ready', width: thumb!.width, height: thumb!.height })
         .onConflictDoNothing()
     } catch {
       // Undecodable or unsupported content: remember, so we don't try again.
-      await rm(partial, { force: true })
       await db.insert(preview).values({ blobHash: hash, status: 'failed' }).onConflictDoNothing()
     }
   }
 
-  jobs.register(JOB, async (payload) => generate(String(payload.hash)))
+  jobs.register(JOB, async (payload) => generate(String(payload.hash), String(payload.mimeType ?? '')))
 
   async function request(hash: string, mimeType: string | null) {
     if (!mimeType || !THUMBNAILABLE.test(mimeType)) return
-    await jobs.enqueue(JOB, { hash }, { dedupeKey: `${JOB}:${hash}` })
+    await jobs.enqueue(JOB, { hash, mimeType }, { dedupeKey: `${JOB}:${hash}` })
   }
 
   return {
     request,
 
-    /** Path of a ready thumbnail (WebP), or null if there isn't one (yet). */
-    async thumbnailPath(hash: string): Promise<string | null> {
+    /** Path of a ready rendition (WebP), or null if there isn't one (yet). */
+    async renditionPath(hash: string, size: PreviewSize = 'thumb'): Promise<string | null> {
       const [row] = await db.select().from(preview).where(eq(preview.blobHash, hash))
       if (row?.status !== 'ready') return null
-      return stat(pathOf(hash))
-        .then(() => pathOf(hash))
+      const path = pathOf(hash, size)
+      return stat(path)
+        .then(() => path)
         .catch(() => null)
     },
 
-    /** Ask for thumbnails of every thumbnailable File that has none yet (e.g. after an upgrade). */
+    /** Ask for previews of every renderable File that has none yet (e.g. after an upgrade). */
     async backfill(): Promise<number> {
       const rows = await db
         .selectDistinct({ hash: item.blobHash, mimeType: item.mimeType })
@@ -86,12 +122,6 @@ export function createPreviews({ db, blobStore, jobs, dir }: PreviewsConfig) {
       return rows.length
     },
   }
-}
-
-function toFile(input: Readable, transform: Sharp, path: string) {
-  input.on('error', (error) => transform.destroy(error))
-  input.pipe(transform)
-  return transform.toFile(path)
 }
 
 export type Previews = ReturnType<typeof createPreviews>

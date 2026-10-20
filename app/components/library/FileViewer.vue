@@ -30,6 +30,13 @@ watch(
   { immediate: true },
 )
 
+/** No large copy (formats browsers show natively don't get one): fall back to the thumbnail. */
+function onImageError(event: Event, id: string) {
+  const img = event.target as HTMLImageElement
+  const fallback = `/api/files/${id}/thumbnail`
+  if (kind.value === 'thumbnail' && !img.src.endsWith(fallback)) img.src = fallback
+}
+
 function step(delta: number) {
   if (index.value === null || props.files.length === 0) return
   index.value = (index.value + delta + props.files.length) % props.files.length
@@ -86,9 +93,10 @@ const navButton =
           <img
             v-if="kind === 'image' || kind === 'thumbnail'"
             :key="file.id"
-            :src="kind === 'image' ? `${content}?inline=1` : `/api/files/${file.id}/thumbnail`"
+            :src="kind === 'image' ? `${content}?inline=1` : `/api/files/${file.id}/thumbnail?size=view`"
             :alt="file.name"
             class="max-h-full max-w-full rounded-tile object-contain"
+            @error="onImageError($event, file.id)"
           />
           <video
             v-else-if="kind === 'video' && !mediaFailed"
