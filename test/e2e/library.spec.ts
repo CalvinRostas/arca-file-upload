@@ -158,3 +158,34 @@ test('a big upload can be paused and resumed, and survives a reload', async ({ p
   const download = downloadViaMenu(page, 'big.bin')
   expect(sha(await readFile(await (await download).path()))).toBe(sha(data))
 })
+
+test('breadcrumbs show where you are, collapse deep paths, and lead back up', async ({ page }) => {
+  await signInAsAdmin(page)
+  await page.goto('/')
+  for (const name of ['Projects', 'Garden', 'Plans', '2026', 'Spring']) {
+    await page.getByRole('button', { name: 'New folder' }).click()
+    await page.getByRole('textbox', { name: 'Name' }).fill(name)
+    await page.getByRole('button', { name: 'Create folder' }).click()
+    await tile(page, name).click()
+    await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible()
+  }
+
+  // Library › … › 2026 › Spring, with the current Folder marked.
+  const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' })
+  await expect(crumbs.locator('[aria-current="page"]')).toHaveText('Spring')
+  await expect(crumbs.getByRole('link', { name: '2026' })).toBeVisible()
+  await expect(crumbs.getByRole('link', { name: 'Garden' })).toHaveCount(0)
+  await page.screenshot({ path: '/tmp/arca-shots/breadcrumb-deep.png' })
+
+  await crumbs.getByRole('button', { name: '3 more folders' }).click()
+  await page.screenshot({ path: '/tmp/arca-shots/breadcrumb-menu.png' })
+  await page.getByRole('menuitem', { name: 'Garden' }).click()
+  await expect(page.getByRole('heading', { name: 'Garden', level: 1 })).toBeVisible()
+  await expect(crumbs.getByRole('link', { name: 'Projects' })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Up to Projects' }).click()
+  await expect(page.getByRole('heading', { name: 'Projects', level: 1 })).toBeVisible()
+  await page.getByRole('link', { name: 'Up to Library' }).click()
+  await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible()
+  await expect(crumbs).toHaveCount(0)
+})

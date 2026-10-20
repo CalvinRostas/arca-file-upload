@@ -19,7 +19,10 @@ watch(uploads.libraryVersion, () => refresh())
 
 const title = computed(() => listing.value?.folder?.name ?? 'Library')
 useHead({ title: computed(() => `${title.value} · Arca`) })
-const ancestors = computed(() => listing.value?.path.slice(0, -1) ?? [])
+const crumbs = computed(() => [
+  { label: 'Library', to: '/' },
+  ...(listing.value?.path ?? []).map((c) => ({ label: c.name, to: `/folders/${c.id}` })),
+])
 
 async function onChanged() {
   await Promise.all([refresh(), refreshTags()])
@@ -134,17 +137,7 @@ const menuItem =
     <template v-else>
       <div class="flex flex-wrap items-end gap-4">
         <div class="min-w-0">
-          <nav
-            v-if="listing?.folder"
-            class="mb-1 flex flex-wrap items-center gap-1.5 text-sm text-muted"
-            aria-label="Breadcrumb"
-          >
-            <NuxtLink to="/" class="hover:text-ink">Library</NuxtLink>
-            <template v-for="crumb in ancestors" :key="crumb.id">
-              <Icon name="lucide:chevron-right" class="size-3.5 text-faint" />
-              <NuxtLink :to="`/folders/${crumb.id}`" class="hover:text-ink">{{ crumb.name }}</NuxtLink>
-            </template>
-          </nav>
+          <UiBreadcrumb v-if="listing?.folder" :crumbs="crumbs" class="mb-3" />
           <h1 class="truncate text-[2rem] leading-tight font-bold tracking-tight">{{ title }}</h1>
         </div>
 

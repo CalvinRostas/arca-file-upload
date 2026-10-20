@@ -69,7 +69,9 @@ function open(item: SharedItem) {
   if (item.kind === 'folder') return navigateTo({ query: { folder: item.id } })
   viewerIndex.value = files.value.findIndex((f) => f.id === item.id)
 }
-const crumbLink = (id: string, index: number) => ({ query: index === 0 ? {} : { folder: id } })
+const crumbs = computed(() =>
+  (listing.value?.path ?? []).map((c, i) => ({ label: c.name, to: { query: i === 0 ? {} : { folder: c.id } } })),
+)
 const zipHref = computed(() => `/api/s/${token}/zip${folderId.value ? `?ids=${folderId.value}` : ''}`)
 </script>
 
@@ -133,16 +135,7 @@ const zipHref = computed(() => `/api/s/${token}/zip${folderId.value ? `?ids=${fo
     <div v-else-if="root && listing" class="flex flex-col gap-8">
       <div class="flex flex-wrap items-end gap-4">
         <div class="min-w-0">
-          <nav
-            v-if="listing.path.length > 1"
-            class="mb-1 flex flex-wrap items-center gap-1.5 text-sm text-muted"
-            aria-label="Breadcrumb"
-          >
-            <template v-for="(crumb, i) in listing.path.slice(0, -1)" :key="crumb.id">
-              <Icon v-if="i > 0" name="lucide:chevron-right" class="size-3.5 text-faint" />
-              <NuxtLink :to="crumbLink(crumb.id, i)" class="hover:text-ink">{{ crumb.name }}</NuxtLink>
-            </template>
-          </nav>
+          <UiBreadcrumb v-if="crumbs.length > 1" :crumbs="crumbs" root-icon="lucide:folder" class="mb-3" />
           <h1 class="truncate text-[2rem] leading-tight font-bold tracking-tight">{{ listing.folder.name }}</h1>
           <p class="text-muted">{{ sharedBy }}</p>
         </div>
