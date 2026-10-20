@@ -14,6 +14,8 @@ export interface LibraryItem {
   mosaic: string[] | null
   /** Files: ids of the Owner's Tags on it. */
   tags: string[]
+  /** It has a Share link. */
+  shared: boolean
   /** Search results only: the Folder path the Item sits in. */
   path?: Crumb[]
   createdAt: string
@@ -79,4 +81,47 @@ export interface Restored {
   renamed: boolean
   /** The Folder it landed in, from the top; empty for the root. */
   path: Crumb[]
+}
+
+/** A Share link, as its Owner sees it. */
+export interface ShareLink {
+  id: string
+  token: string
+  itemId: string
+  item: {
+    kind: 'folder' | 'file'
+    name: string
+    mimeType: string | null
+    size: number | null
+    thumbnail: boolean
+    /** The Folder it sits in, from the top; null while it's in Trash. */
+    path: Crumb[] | null
+  }
+  hasPassword: boolean
+  expiresAt: string | null
+  maxDownloads: number | null
+  downloads: number
+  views: number
+  lastAccessedAt: string | null
+  createdAt: string
+  status: 'active' | 'expired' | 'used-up' | 'trashed'
+}
+
+/** An Item as a Share link's visitor sees it. */
+export type SharedItem = Omit<LibraryItem, 'parentId' | 'tags' | 'shared' | 'path'>
+
+/** What opening a Share link returns. */
+export interface SharedRoot {
+  item: SharedItem
+  ownerName: string
+  expiresAt: string | null
+  /** Viewing in the browser; off while downloads are limited. */
+  previews: boolean
+}
+
+export interface SharedListing {
+  folder: Crumb
+  /** From the shared Folder down. */
+  path: Crumb[]
+  items: SharedItem[]
 }

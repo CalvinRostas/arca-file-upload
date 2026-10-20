@@ -8,6 +8,7 @@ import { createJobs, type Jobs } from '../modules/jobs'
 import { createLibrary, type Library, type OwnerLibrary } from '../modules/library'
 import { createPreviews, type Previews } from '../modules/previews'
 import { createSearch, type Search } from '../modules/search'
+import { createShares, type Shares } from '../modules/shares'
 import { createTags, type Tags } from '../modules/tags'
 
 /** The wired-up modules. Route adapters get them from here and nowhere else. */
@@ -21,6 +22,7 @@ export interface Arca {
   previews: Previews
   tags: Tags
   search: Search
+  shares: Shares
 }
 
 const HOUR = 3_600_000
@@ -50,6 +52,12 @@ export async function useOwnerScope(event: H3Event) {
   return { tags: tags.for(owner), search: search.for(owner) }
 }
 
+/** The signed-in Owner's Share links, or a 401. */
+export async function useOwnerShares(event: H3Event) {
+  const { auth, shares } = await useArca()
+  return shares.for(await auth.requireUser(event.headers))
+}
+
 async function boot(): Promise<Arca> {
   const config = useRuntimeConfig()
   if (config.authSecret.length < 32) {
@@ -70,6 +78,7 @@ async function boot(): Promise<Arca> {
   })
   const tags = createTags({ db: database.db })
   const search = createSearch({ db: database.db, library })
+  const shares = createShares({ db: database.db, library, secret: config.authSecret })
   const blobStore = createLocalBlobStore(config.blobDir)
   const previews = createPreviews({ db: database.db, blobStore, jobs, dir: config.previewDir })
   const ingest = createIngest({
@@ -99,5 +108,5 @@ async function boot(): Promise<Arca> {
   await previews.backfill()
   jobs.start()
 
-  return { db: database.db, auth, library, blobStore, ingest, jobs, previews, tags, search }
+  return { db: database.db, auth, library, blobStore, ingest, jobs, previews, tags, search, shares }
 }

@@ -10,6 +10,7 @@ const props = withDefaults(
     required?: boolean
     inputmode?: 'text' | 'numeric' | 'email'
     autofocus?: boolean
+    min?: string
   }>(),
   {
     type: 'text',
@@ -19,6 +20,7 @@ const props = withDefaults(
     required: false,
     inputmode: undefined,
     autofocus: false,
+    min: undefined,
   },
 )
 
@@ -42,6 +44,7 @@ const inputType = computed(() => (props.type === 'password' && revealed.value ? 
         :required="props.required"
         :inputmode="props.inputmode"
         :autofocus="props.autofocus"
+        :min="props.min"
         :aria-invalid="!!props.error || undefined"
         :aria-describedby="props.error || props.hint ? `${id}-desc` : undefined"
         class="h-full min-w-0 flex-1 bg-transparent px-3 outline-none"

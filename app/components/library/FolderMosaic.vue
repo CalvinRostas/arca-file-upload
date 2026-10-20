@@ -1,7 +1,8 @@
 <!-- A folder previews what's inside it: up to three thumbnails, or a quiet folder icon. -->
 <script setup lang="ts">
 const props = defineProps<{ ids: string[] }>()
-const src = (id: string) => `/api/files/${id}/thumbnail`
+const urls = useFileUrls()
+const src = (id: string) => urls.thumbnail(id)
 </script>
 
 <template>

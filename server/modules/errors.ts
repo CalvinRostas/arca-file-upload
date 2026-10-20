@@ -79,3 +79,44 @@ export class TagNameTaken extends Conflict {
     super(`You already have a tag called “${name}”`)
   }
 }
+
+/** A Share link that can't be used: unknown, revoked, its target in Trash, expired, or used up. */
+export class ShareUnavailable extends DomainError {
+  readonly status: number
+  readonly code: string
+  constructor(readonly reason: 'gone' | 'expired' | 'used-up') {
+    super(
+      reason === 'expired'
+        ? 'This link has expired'
+        : reason === 'used-up'
+          ? 'This link has reached its download limit'
+          : 'This link isn’t available',
+    )
+    this.status = reason === 'gone' ? 404 : 410
+    this.code = reason === 'gone' ? 'share_unavailable' : reason === 'expired' ? 'share_expired' : 'share_used_up'
+  }
+}
+
+export class SharePasswordRequired extends DomainError {
+  readonly status = 401
+  readonly code = 'password_required'
+  constructor() {
+    super('This link is protected with a password')
+  }
+}
+
+export class WrongSharePassword extends DomainError {
+  readonly status = 401
+  readonly code = 'wrong_password'
+  constructor() {
+    super('That password isn’t right')
+  }
+}
+
+export class TooManyAttempts extends DomainError {
+  readonly status = 429
+  readonly code = 'too_many_attempts'
+  constructor(readonly retryAfterSeconds: number) {
+    super(`Too many wrong passwords. Try again in ${Math.max(1, Math.ceil(retryAfterSeconds / 60))} min.`)
+  }
+}

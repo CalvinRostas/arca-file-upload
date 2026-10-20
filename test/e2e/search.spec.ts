@@ -66,8 +66,12 @@ test('tag files, search with the query language and chips, and jump there with �
 
   // ⌘K: type, pick a file, land in its folder with the viewer open.
   await page.goto('/')
-  await page.keyboard.press('ControlOrMeta+k')
   const palette = page.getByRole('dialog', { name: 'Search and go to' })
+  // The shortcut is listened for once the page has hydrated; ⌘K toggles, so only press while closed.
+  await expect(async () => {
+    if (!(await palette.isVisible())) await page.keyboard.press('ControlOrMeta+k')
+    await expect(palette).toBeVisible({ timeout: 1000 })
+  }).toPass()
   await palette.getByRole('combobox', { name: 'Search' }).fill('holidy')
   await expect(palette.getByRole('option', { name: /holiday-plan\.txt/ })).toBeVisible()
   await page.keyboard.press('Enter')

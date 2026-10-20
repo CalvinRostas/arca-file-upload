@@ -32,6 +32,8 @@ The domain language of Arca. Use these terms in code, docs, and conversation.
 
 **Trash**: the soft-delete area. A **Trash entry** is one deleted File, or one deleted Folder together with its whole subtree. Entries are purged after 30 days. Restoring puts an entry back in its Folder; if that Folder is gone or in Trash itself, it recreates the path by name, and a name taken in the meantime gets a free one (as with _keep both_). An entry is only restored or deleted as a whole.
 
-**Share link**: an unguessable token URL that grants read-only access to one File or one Folder (live, including its subtree). It can have an optional password, expiry, and download limit. It is disabled while its target is in Trash.
+**Share link**: an unguessable token URL that grants read-only access to one File or one Folder (live, including its subtree). An Item has at most one. It can have an optional password, expiry (the end of a chosen day), and download limit. It is paused while its target is in Trash, works again once restored, and is deleted with its target. _Revoking_ ("Stop sharing") deletes it for good. Visitors aren't identified: the Owner sees how often it was opened and downloaded and when it was last used, and nothing else.
+
+**Download** (via a Share link): fetching a File's bytes as a file, or a zip. Each counts once against the link's limit; resuming one doesn't. While a link has a download limit, previews in the browser are off (see ADR-0008).
 
 **Preview**: a derived rendition of a File (an image thumbnail now, and video poster frames later). It is generated in the background.

@@ -5,6 +5,7 @@ const props = defineProps<{ item: LibraryItem; selected: boolean; selecting: boo
 const emit = defineEmits<{
   open: []
   select: [event: MouseEvent]
+  share: []
   rename: []
   move: []
   tags: []
@@ -72,13 +73,24 @@ function onClick(event: MouseEvent) {
 
       <div v-if="isFolder" class="flex flex-col px-1.5 pb-1">
         <span class="flex items-baseline justify-between gap-2">
-          <span class="truncate font-semibold">{{ props.item.name }}</span>
+          <span class="flex min-w-0 items-center gap-1.5">
+            <span class="truncate font-semibold">{{ props.item.name }}</span>
+            <Icon
+              v-if="props.item.shared"
+              name="lucide:link"
+              class="size-3.5 shrink-0 text-accent"
+              aria-label="Shared"
+            />
+          </span>
           <span class="shrink-0 text-sm text-faint">{{ meta }}</span>
         </span>
         <span v-if="pathLabel" class="truncate text-sm text-faint">{{ pathLabel }}</span>
       </div>
       <div v-else class="flex w-full flex-col gap-0.5 px-1">
-        <span class="truncate font-semibold">{{ props.item.name }}</span>
+        <span class="flex min-w-0 items-center gap-1.5">
+          <span class="truncate font-semibold">{{ props.item.name }}</span>
+          <Icon v-if="props.item.shared" name="lucide:link" class="size-3.5 shrink-0 text-accent" aria-label="Shared" />
+        </span>
         <span class="flex items-center gap-2 text-sm text-faint">
           {{ meta }}
           <span class="ml-auto flex items-center gap-1">
@@ -111,6 +123,7 @@ function onClick(event: MouseEvent) {
       :item="props.item"
       trigger-class="absolute top-3.5 right-3.5 bg-surface/90 shadow-sm backdrop-blur opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100"
       @open="emit('open')"
+      @share="emit('share')"
       @rename="emit('rename')"
       @move="emit('move')"
       @tags="emit('tags')"

@@ -45,6 +45,7 @@ const entries = computed<Entry[]>(() => {
         color: t.color,
         run: () => navigateTo(searchUrl(`tag:${/\s/.test(t.name) ? `"${t.name}"` : t.name}`)),
       })),
+      { id: 'shared', label: 'Shared', icon: 'lucide:link', run: () => navigateTo('/shared') },
       { id: 'trash', label: 'Trash', icon: 'lucide:trash-2', run: () => navigateTo('/trash') },
       ...(isAdmin.value
         ? [{ id: 'members', label: 'Members', icon: 'lucide:users', run: () => navigateTo('/admin/members') }]

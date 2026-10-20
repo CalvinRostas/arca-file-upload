@@ -4,7 +4,7 @@ import { schema, type Db } from '../../db'
 import { InvalidInput, InvalidMove, NameConflict, NotFound } from '../errors'
 import { cleanName, freeName } from './names'
 
-const { item, blob } = schema
+const { item, blob, share } = schema
 
 /** What to do when a File's name is already taken in its Folder (see GLOSSARY: Name collision). */
 export type ConflictChoice = 'replace' | 'keepBoth' | 'skip'
@@ -25,8 +25,21 @@ export interface Item {
   mosaic: string[] | null
   /** Files only: ids of the Owner's Tags on this File. */
   tags: string[]
+  /** It has a Share link (see Shares). */
+  shared: boolean
   createdAt: Date
   updatedAt: Date
+}
+
+/** An Item as a Share link's visitor sees it: no Tags, nothing about what's outside the Share. */
+export type SharedItem = Omit<Item, 'parentId' | 'tags' | 'shared'>
+
+export interface SharedListing {
+  /** The shared Folder, or a Folder below it. */
+  folder: Crumb
+  /** From the shared Folder down to (and including) `folder`. */
+  path: Crumb[]
+  items: SharedItem[]
 }
 
 export interface Crumb {
@@ -350,11 +363,90 @@ function scoped(db: Db, ownerId: string, released: () => Promise<void>) {
           where c.parent_id = "item"."id" and c.trashed_at is null
           order by c.created_at desc limit 3
         ) end`,
+        shared: sql<boolean>`exists(select 1 from ${share} s where s.item_id = "item"."id")`,
       })
       .from(item)
       .where(where)
       .orderBy(desc(item.kind), asc(sql`lower(${item.name})`))
-    return rows.map((r) => toItem(r.row, r.childCount, r.thumbnail, r.mosaic, r.tags))
+    return rows.map((r) => ({ ...toItem(r.row, r.childCount, r.thumbnail, r.mosaic, r.tags), shared: r.shared }))
+  }
+
+  /**
+   * From `rootId` down to `itemId` (inclusive), or undefined unless `itemId` is live and at or
+   * below `rootId`. Walks up from the Item, so it costs the depth, not the size of the subtree.
+   */
+  async function chainWithin(rootId: string, itemId: string) {
+    const result = await db.execute<{ id: string; name: string; kind: 'folder' | 'file' }>(sql`
+      with recursive up as (
+        select id, parent_id, name, kind, 0 as depth from item
+        where id = ${itemId} and owner_id = ${ownerId} and trashed_at is null
+        union all
+        select i.id, i.parent_id, i.name, i.kind, up.depth + 1 from item i join up on i.id = up.parent_id
+        where up.id <> ${rootId} and i.trashed_at is null
+      )
+      select id, name, kind from up order by depth desc`)
+    const chain = result.rows
+    return chain[0]?.id === rootId ? chain : undefined
+  }
+
+  async function requireWithin(rootId: string, itemIds: string[]) {
+    for (const id of new Set(itemIds)) {
+      if (!(await chainWithin(rootId, id))) throw new NotFound('Item not found')
+    }
+  }
+
+  /**
+   * Everything at and below `itemIds` (Files and Folders, not trashed), with paths relative
+   * to their common parent. For zip downloads.
+   */
+  async function walk(itemIds: string[]): Promise<WalkEntry[]> {
+    const unique = [...new Set(itemIds)]
+    if (unique.length === 0) return []
+    const result = await db.execute<{
+      path: string
+      kind: 'folder' | 'file'
+      blob_hash: string | null
+      size: string | number | null
+      updated_at: string | Date
+      depth: number
+    }>(sql`
+      with recursive tree as (
+        select id, kind, name::text as path, blob_hash, size, updated_at, 0 as depth
+        from item
+        where id in (${sql.join(
+          unique.map((id) => sql`${id}`),
+          sql`, `,
+        )})
+          and owner_id = ${ownerId} and trashed_at is null
+        union all
+        select c.id, c.kind, tree.path || '/' || c.name, c.blob_hash, c.size, c.updated_at, tree.depth + 1
+        from item c join tree on c.parent_id = tree.id
+        where c.trashed_at is null
+      )
+      select path, kind, blob_hash, size, updated_at, depth from tree order by depth, path`)
+    const roots = result.rows.filter((r) => r.depth === 0).length
+    if (roots !== unique.length) throw new NotFound('Item not found')
+    return result.rows.map((r) => ({
+      path: r.path,
+      kind: r.kind,
+      blobHash: r.blob_hash,
+      size: r.size === null ? null : Number(r.size),
+      updatedAt: new Date(r.updated_at),
+    }))
+  }
+
+  /** `includeTrashed`: also Files in Trash (for their thumbnails there). */
+  async function getFile(fileId: string, options: { includeTrashed?: boolean } = {}): Promise<StoredFile> {
+    const [row] = await db
+      .select()
+      .from(item)
+      .where(
+        options.includeTrashed
+          ? and(eq(item.ownerId, ownerId), eq(item.id, fileId), eq(item.kind, 'file'))
+          : mine(eq(item.id, fileId), eq(item.kind, 'file')),
+      )
+    if (!row) throw new NotFound('File not found')
+    return { id: row.id, name: row.name, size: row.size!, mimeType: row.mimeType, blobHash: row.blobHash! }
   }
 
   return {
@@ -501,59 +593,9 @@ function scoped(db: Db, ownerId: string, released: () => Promise<void>) {
       })
     },
 
-    /**
-     * Everything at and below `itemIds` (Files and Folders, not trashed), with paths relative
-     * to their common parent. For zip downloads.
-     */
-    async walk(itemIds: string[]): Promise<WalkEntry[]> {
-      const unique = [...new Set(itemIds)]
-      if (unique.length === 0) return []
-      const result = await db.execute<{
-        path: string
-        kind: 'folder' | 'file'
-        blob_hash: string | null
-        size: string | number | null
-        updated_at: string | Date
-        depth: number
-      }>(sql`
-        with recursive tree as (
-          select id, kind, name::text as path, blob_hash, size, updated_at, 0 as depth
-          from item
-          where id in (${sql.join(
-            unique.map((id) => sql`${id}`),
-            sql`, `,
-          )})
-            and owner_id = ${ownerId} and trashed_at is null
-          union all
-          select c.id, c.kind, tree.path || '/' || c.name, c.blob_hash, c.size, c.updated_at, tree.depth + 1
-          from item c join tree on c.parent_id = tree.id
-          where c.trashed_at is null
-        )
-        select path, kind, blob_hash, size, updated_at, depth from tree order by depth, path`)
-      const roots = result.rows.filter((r) => r.depth === 0).length
-      if (roots !== unique.length) throw new NotFound('Item not found')
-      return result.rows.map((r) => ({
-        path: r.path,
-        kind: r.kind,
-        blobHash: r.blob_hash,
-        size: r.size === null ? null : Number(r.size),
-        updatedAt: new Date(r.updated_at),
-      }))
-    },
+    walk,
 
-    /** `includeTrashed`: also Files in Trash (for their thumbnails there). */
-    async getFile(fileId: string, options: { includeTrashed?: boolean } = {}): Promise<StoredFile> {
-      const [row] = await db
-        .select()
-        .from(item)
-        .where(
-          options.includeTrashed
-            ? and(eq(item.ownerId, ownerId), eq(item.id, fileId), eq(item.kind, 'file'))
-            : mine(eq(item.id, fileId), eq(item.kind, 'file')),
-        )
-      if (!row) throw new NotFound('File not found')
-      return { id: row.id, name: row.name, size: row.size!, mimeType: row.mimeType, blobHash: row.blobHash! }
-    },
+    getFile,
 
     /**
      * Move Items to Trash. Each becomes one Trash entry with its whole subtree; an Item inside a
@@ -700,6 +742,42 @@ function scoped(db: Db, ownerId: string, released: () => Promise<void>) {
       return count
     },
 
+    /**
+     * A read-only view of one Item and everything below it, for a Share link's visitors.
+     * Anything outside that subtree, or in Trash, is indistinguishable from missing.
+     */
+    within(rootId: string) {
+      return {
+        /** The shared Item itself. */
+        async root(): Promise<SharedItem> {
+          const [root] = await decorated(mine(eq(item.id, rootId)))
+          if (!root) throw new NotFound('Item not found')
+          return toShared(root)
+        },
+
+        /** A Folder's contents: the shared Folder (`null`) or one below it. */
+        async list(folderId: string | null): Promise<SharedListing> {
+          const chain = await chainWithin(rootId, folderId ?? rootId)
+          const folder = chain?.at(-1)
+          if (!folder || folder.kind !== 'folder') throw new NotFound('Folder not found')
+          const items = await decorated(mine(inFolder(folder.id)))
+          const path = chain!.map((c) => ({ id: c.id, name: c.name }))
+          return { folder: path.at(-1)!, path, items: items.map(toShared) }
+        },
+
+        async getFile(fileId: string): Promise<StoredFile> {
+          await requireWithin(rootId, [fileId])
+          return getFile(fileId)
+        },
+
+        /** Like `walk`, limited to the subtree; no ids means the shared Item itself. */
+        async walk(itemIds: string[] = [rootId]): Promise<WalkEntry[]> {
+          await requireWithin(rootId, itemIds)
+          return walk(itemIds)
+        },
+      }
+    },
+
     /** "Discard this copy": only allowed while another of the Owner's Files keeps the same bytes. */
     async discardDuplicate(fileId: string): Promise<void> {
       await db.transaction(async (tx) => {
@@ -735,7 +813,12 @@ function toItem(
     thumbnail: row.kind === 'file' && thumbnail,
     mosaic: row.kind === 'folder' ? (mosaic ?? []) : null,
     tags,
+    shared: false,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
+}
+
+function toShared({ parentId: _parentId, tags: _tags, shared: _shared, ...rest }: Item): SharedItem {
+  return rest
 }

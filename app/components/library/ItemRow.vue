@@ -5,6 +5,7 @@ const props = defineProps<{ item: LibraryItem; selected: boolean; selecting: boo
 const emit = defineEmits<{
   open: []
   select: [event: MouseEvent]
+  share: []
   rename: []
   move: []
   tags: []
@@ -59,6 +60,7 @@ function onClick(event: MouseEvent) {
       <span class="flex min-w-0 flex-col">
         <span class="flex items-center gap-2">
           <span class="truncate font-semibold">{{ props.item.name }}</span>
+          <Icon v-if="props.item.shared" name="lucide:link" class="size-3.5 shrink-0 text-accent" aria-label="Shared" />
           <span
             v-for="t in itemTags"
             :key="t.id"
@@ -79,6 +81,7 @@ function onClick(event: MouseEvent) {
       :item="props.item"
       trigger-class="hover:bg-sunken"
       @open="emit('open')"
+      @share="emit('share')"
       @rename="emit('rename')"
       @move="emit('move')"
       @tags="emit('tags')"

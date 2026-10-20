@@ -239,3 +239,33 @@ export const itemTag = pgTable(
   },
   (t) => [primaryKey({ columns: [t.itemId, t.tagId] }), index('item_tag_tag_idx').on(t.tagId)],
 )
+
+/**
+ * A Share link (GLOSSARY): read-only access to one File or Folder (live, with its subtree)
+ * for anyone holding the token. At most one per Item; deleting the Item for good deletes it.
+ */
+export const share = pgTable(
+  'share',
+  {
+    id: text('id').primaryKey(),
+    ownerId: text('owner_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    itemId: text('item_id')
+      .notNull()
+      .unique()
+      .references(() => item.id, { onDelete: 'cascade' }),
+    /** Kept (not hashed) so the Owner can copy the link again from the Shared view. */
+    token: text('token').notNull().unique(),
+    /** argon2id; null means no password. */
+    passwordHash: text('password_hash'),
+    expiresAt: timestamp('expires_at', { withTimezone: true }),
+    maxDownloads: integer('max_downloads'),
+    downloads: integer('downloads').notNull().default(0),
+    views: integer('views').notNull().default(0),
+    /** When the link was last opened or downloaded from. No IPs or other visitor details are kept. */
+    lastAccessedAt: timestamp('last_accessed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('share_owner_idx').on(t.ownerId)],
+)

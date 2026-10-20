@@ -2,7 +2,7 @@
 import type { LibraryItem } from '~/types/library'
 
 const props = defineProps<{ item: LibraryItem; triggerClass?: string }>()
-const emit = defineEmits<{ open: []; rename: []; move: []; tags: []; trash: [] }>()
+const emit = defineEmits<{ open: []; share: []; rename: []; move: []; tags: []; trash: [] }>()
 
 const isFolder = computed(() => props.item.kind === 'folder')
 const downloadHref = computed(() =>
@@ -36,6 +36,9 @@ const menuItem =
             <Icon name="lucide:download" class="size-4 text-muted" />
             {{ isFolder ? 'Download as zip' : 'Download' }}
           </a>
+        </DropdownMenuItem>
+        <DropdownMenuItem :class="menuItem" @select="emit('share')">
+          <Icon name="lucide:link" class="size-4 text-muted" /> Share…
         </DropdownMenuItem>
         <DropdownMenuSeparator class="my-1 h-px bg-line" />
         <DropdownMenuItem :class="menuItem" @select="emit('rename')">

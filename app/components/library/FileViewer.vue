@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import type { LibraryItem } from '~/types/library'
+import type { SharedItem } from '~/types/library'
 
-const props = defineProps<{ files: LibraryItem[] }>()
+const props = withDefaults(
+  defineProps<{
+    files: SharedItem[]
+    /** Off for Share links with a download limit: only thumbnails, and a Download button. */
+    previews?: boolean
+  }>(),
+  { previews: true },
+)
+const urls = useFileUrls()
 /** Index into `files` of the open File, or null when closed. */
 const index = defineModel<number | null>('index', { default: null })
 
@@ -12,8 +20,10 @@ const open = computed({
   },
 })
 const file = computed(() => (index.value === null ? null : (props.files[index.value] ?? null)))
-const kind = computed(() => (file.value ? viewerKind(file.value) : 'none'))
-const content = computed(() => (file.value ? `/api/files/${file.value.id}/content` : ''))
+const kindOf = (item: SharedItem) => (props.previews ? viewerKind(item) : item.thumbnail ? 'thumbnail' : 'none')
+const kind = computed(() => (file.value ? kindOf(file.value) : 'none'))
+const download = computed(() => (file.value ? urls.content(file.value.id) : ''))
+const preview = computed(() => (file.value ? urls.preview(file.value.id) : ''))
 const mediaFailed = ref(false)
 
 // Text is fetched and shown as text; it is never rendered as HTML.
@@ -23,8 +33,8 @@ watch(
   async (current) => {
     mediaFailed.value = false
     text.value = null
-    if (current && viewerKind(current) === 'text') {
-      text.value = await $fetch<string>(`/api/files/${current.id}/content`, { responseType: 'text' }).catch(() => null)
+    if (current && kindOf(current) === 'text') {
+      text.value = await $fetch<string>(urls.preview(current.id), { responseType: 'text' }).catch(() => null)
     }
   },
   { immediate: true },
@@ -33,7 +43,7 @@ watch(
 /** No large copy (formats browsers show natively don't get one): fall back to the thumbnail. */
 function onImageError(event: Event, id: string) {
   const img = event.target as HTMLImageElement
-  const fallback = `/api/files/${id}/thumbnail`
+  const fallback = urls.thumbnail(id)
   if (kind.value === 'thumbnail' && !img.src.endsWith(fallback)) img.src = fallback
 }
 
@@ -74,7 +84,7 @@ const navButton =
             </DialogDescription>
           </div>
           <a
-            :href="content"
+            :href="download"
             download
             class="flex h-9 items-center gap-2 rounded-control bg-white/10 px-3 text-sm font-semibold hover:bg-white/20"
           >
@@ -93,7 +103,7 @@ const navButton =
           <img
             v-if="kind === 'image' || kind === 'thumbnail'"
             :key="file.id"
-            :src="kind === 'image' ? `${content}?inline=1` : `/api/files/${file.id}/thumbnail?size=view`"
+            :src="kind === 'image' ? preview : urls.thumbnail(file.id, 'view')"
             :alt="file.name"
             class="max-h-full max-w-full rounded-tile object-contain"
             @error="onImageError($event, file.id)"
@@ -101,7 +111,7 @@ const navButton =
           <video
             v-else-if="kind === 'video' && !mediaFailed"
             :key="file.id"
-            :src="`${content}?inline=1`"
+            :src="preview"
             controls
             autoplay
             class="max-h-full max-w-full rounded-tile"
@@ -109,19 +119,12 @@ const navButton =
           />
           <div v-else-if="kind === 'audio' && !mediaFailed" class="flex w-full max-w-md flex-col items-center gap-6">
             <Icon name="lucide:music" class="size-16 text-white/50" />
-            <audio
-              :key="file.id"
-              :src="`${content}?inline=1`"
-              controls
-              autoplay
-              class="w-full"
-              @error="mediaFailed = true"
-            />
+            <audio :key="file.id" :src="preview" controls autoplay class="w-full" @error="mediaFailed = true" />
           </div>
           <iframe
             v-else-if="kind === 'pdf'"
             :key="file.id"
-            :src="`${content}?inline=1`"
+            :src="preview"
             :title="file.name"
             class="size-full rounded-tile bg-white"
           />
@@ -132,7 +135,13 @@ const navButton =
           <div v-else class="flex max-w-sm flex-col items-center gap-4 text-center">
             <Icon :name="fileIcon(file.name, file.mimeType)" class="size-16 text-white/50" />
             <p class="text-lg font-semibold">
-              {{ mediaFailed ? 'Your browser can’t play this file' : 'No preview for this kind of file' }}
+              {{
+                mediaFailed
+                  ? 'Your browser can’t play this file'
+                  : props.previews
+                    ? 'No preview for this kind of file'
+                    : 'Previews are off for this link'
+              }}
             </p>
             <p class="text-white/60">Download it to open it with an app on your device.</p>
           </div>

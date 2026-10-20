@@ -109,6 +109,13 @@ function move(ids: string[]) {
   moveOpen.value = true
 }
 
+const shareOpen = ref(false)
+const shareItem = ref<LibraryItem | null>(null)
+function share(item: LibraryItem) {
+  shareItem.value = item
+  shareOpen.value = true
+}
+
 const tagOpen = ref(false)
 const tagFiles = ref<LibraryItem[]>([])
 function editTags(items: LibraryItem[]) {
@@ -184,6 +191,7 @@ defineExpose({ clearSelection })
             :selecting="selecting"
             @open="open(folder)"
             @select="select(folder, $event)"
+            @share="share(folder)"
             @rename="startRename(folder)"
             @move="move([folder.id])"
             @trash="trash([folder])"
@@ -201,6 +209,7 @@ defineExpose({ clearSelection })
             :selecting="selecting"
             @open="open(file)"
             @select="select(file, $event)"
+            @share="share(file)"
             @rename="startRename(file)"
             @move="move([file.id])"
             @tags="editTags([file])"
@@ -226,6 +235,7 @@ defineExpose({ clearSelection })
         :selecting="selecting"
         @open="open(item)"
         @select="select(item, $event)"
+        @share="share(item)"
         @rename="startRename(item)"
         @move="move([item.id])"
         @tags="editTags([item])"
@@ -236,6 +246,7 @@ defineExpose({ clearSelection })
     <FileViewer v-model:index="viewerIndex" :files="files" />
     <MoveDialog v-model:open="moveOpen" :item-ids="moveIds" :from-folder-id="props.moveFrom" @moved="changed" />
     <TagDialog v-model:open="tagOpen" :files="tagFiles" @changed="changed" />
+    <ShareDialog v-model:open="shareOpen" :item="shareItem" @changed="changed" />
 
     <UiDialog v-model:open="rename.open" title="Rename">
       <form class="flex flex-col gap-5" @submit.prevent="saveRename">

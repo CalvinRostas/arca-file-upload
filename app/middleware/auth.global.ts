@@ -1,4 +1,4 @@
-const PUBLIC = [/^\/login$/, /^\/setup$/, /^\/invite\//]
+const PUBLIC = [/^\/login$/, /^\/setup$/, /^\/invite\//, /^\/s\//]
 
 export default defineNuxtRouteMiddleware(async (to) => {
   const session = useSession()
